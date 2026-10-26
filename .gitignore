@@ -1,0 +1,21 @@
+# Segredos: nunca versionar
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# Binários e saídas de teste
+/bin/
+/sentinela-api
+*.exe
+*.test
+*.out
+coverage.*
+
+# Editor e sistema
+.vscode/
+.idea/
+.DS_Store
