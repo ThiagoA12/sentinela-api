@@ -34,12 +34,12 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	//Cria pool de conexoes, ainda nao conecta so valida a URL
+	//Cria pool de conexoes
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("configurar pool do banco: %w", err)
 	}
-	defer pool.Close()
+	defer pool.Close() // fecha todas as conexoes somente depois do servidor ter desligado
 
 	// testando conexao, com prazo de 5s. sem banco a api nao sobe.
 	pingCtx, cancelPing := context.WithTimeout(ctx, 5*time.Second)
@@ -51,9 +51,10 @@ func run() error {
 
 	mux := http.NewServeMux()
 
-	//aqui esta registrando a rota GET /healthz
+	//aqui esta registrando a rota GET /healthz, GET /readyz e GET /api/v1/ativos
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /readyz", handleReadyz(pool))
+	mux.HandleFunc("GET /api/v1/ativos", handleListaAtivos(pool)) // primeira rota que le dados de verdade
 
 	//criacao do servidor com as configuracoes: endereco, roteador e timeouts
 	srv := &http.Server{
