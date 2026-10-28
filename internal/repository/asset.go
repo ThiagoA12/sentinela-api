@@ -12,7 +12,7 @@ type AssetRepository struct {
 	q *db.Queries
 }
 
-func NewAssetRepsitory(conn db.DBTX) *AssetRepository {
+func NewAssetRepository(conn db.DBTX) *AssetRepository {
 	return &AssetRepository{q: db.New(conn)}
 }
 
