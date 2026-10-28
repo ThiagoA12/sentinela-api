@@ -50,8 +50,7 @@ func handleListaAtivos(svc *service.AssetService) http.HandlerFunc {
 
 		assets, err := svc.List(ctx)
 		if err != nil {
-			log.Printf("listar ativos: %v", err)
-			writeJSON(w, http.StatusInternalServerError, `{"error":"erro interno"}`)
+			writeProblem(w, r, err)
 			return
 		}
 
