@@ -9,6 +9,45 @@ import (
 	"context"
 )
 
+const createAsset = `-- name: CreateAsset :one
+INSERT INTO assets (name, identifier, type, criticality, description)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, name, identifier, type, criticality, created_at,
+    description, updated_at, deleted_at, version
+`
+
+type CreateAssetParams struct {
+	Name        string
+	Identifier  string
+	Type        string
+	Criticality string
+	Description *string
+}
+
+func (q *Queries) CreateAsset(ctx context.Context, arg CreateAssetParams) (Asset, error) {
+	row := q.db.QueryRow(ctx, createAsset,
+		arg.Name,
+		arg.Identifier,
+		arg.Type,
+		arg.Criticality,
+		arg.Description,
+	)
+	var i Asset
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Identifier,
+		&i.Type,
+		&i.Criticality,
+		&i.CreatedAt,
+		&i.Description,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.Version,
+	)
+	return i, err
+}
+
 const listAssets = `-- name: ListAssets :many
 SELECT id, name, identifier, type, criticality, created_at,
     description, updated_at, deleted_at, version
