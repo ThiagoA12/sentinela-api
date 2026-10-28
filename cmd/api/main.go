@@ -1,4 +1,3 @@
-// package main é o ponto de entrada da API
 package main
 
 import (
@@ -14,6 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ThiagoA12/sentinela-api/internal/config"
+	"github.com/ThiagoA12/sentinela-api/internal/repository"
+	"github.com/ThiagoA12/sentinela-api/internal/service"
 )
 
 func main() {
@@ -22,26 +23,21 @@ func main() {
 	}
 }
 
-// run monta e executa a API. Devolve o erro em vez de encerrar o programa
-// para que todos os defer rodem antes da saída.
 func run() error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
 
-	//ctx é cancelado quando SIGINT (Ctrl + c) ou SIGTERM (docker compose down, docker stop)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	//Cria pool de conexoes
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("configurar pool do banco: %w", err)
 	}
-	defer pool.Close() // fecha todas as conexoes somente depois do servidor ter desligado
+	defer pool.Close()
 
-	// testando conexao, com prazo de 5s. sem banco a api nao sobe.
 	pingCtx, cancelPing := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelPing()
 	if err := pool.Ping(pingCtx); err != nil {
@@ -49,21 +45,21 @@ func run() error {
 	}
 	log.Println("conectado ao banco")
 
-	mux := http.NewServeMux()
+	assetRepo := repository.NewAssetRepository(pool)
+	assetSvc := service.NewAssetService(assetRepo)
 
-	//aqui esta registrando a rota GET /healthz, GET /readyz e GET /api/v1/ativos
+	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /readyz", handleReadyz(pool))
-	mux.HandleFunc("GET /api/v1/ativos", handleListaAtivos(pool)) // primeira rota que le dados de verdade
+	mux.HandleFunc("GET /api/v1/ativos", handleListaAtivos(assetSvc))
 
-	//criacao do servidor com as configuracoes: endereco, roteador e timeouts
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           mux,              // quem trata as requisicoes
-		ReadHeaderTimeout: 5 * time.Second,  // tempo para o cliente mandar cabeçalhos da requisição
-		ReadTimeout:       10 * time.Second, // tempo para ler a requisição inteira (cabeçalhos + corpo)
-		WriteTimeout:      15 * time.Second, // tempo para a API escrever a resposta
-		IdleTimeout:       60 * time.Second, // tempo para conexão ficar parada esperando próxima requisição
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
@@ -74,49 +70,37 @@ func run() error {
 
 	select {
 	case err := <-errCh:
-		return err //ex.: porta ocupada
+		return err
 	case <-ctx.Done():
 	}
 	stop()
 
 	log.Println("sinal recebido, desligando...")
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		return err
-	}
-
-	log.Println("servidor encerrado...")
 	return nil
 }
 
-// handleHealthz responde se o processo esta ativo. nao consulta banco.
 func handleHealthz(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, "{\"status\":\"ok\"}")
+	writeJSON(w, http.StatusOK, `{"status":"ok"}`)
 }
 
-// handleReadyz responde se a api consegue etender. testa o banco a cada chamada
 func handleReadyz(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 
 		if err := pool.Ping(ctx); err != nil {
-			log.Printf("readyz: banco indisponivel: %v", err) //detalhe so no log
-			writeJSON(w, http.StatusServiceUnavailable, "{\"status\":\"unavailable\"}")
+			log.Printf("readyz: banco indisponivel: %v", err)
+			writeJSON(w, http.StatusServiceUnavailable, `{"status":"unavailable"}`)
 			return
 		}
-		writeJSON(w, http.StatusOK, "{\"status\":\"ok\"}")
+		writeJSON(w, http.StatusOK, `{"status":"ok"}`)
 	}
 }
 
-// writeJSON escreve um corpo JSON pronto com o codigo de status informado
 func writeJSON(w http.ResponseWriter, status int, body string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if _, err := w.Write([]byte(body)); err != nil {
-		log.Printf("erro ao escrever resposta: %v", err)
+		log.Printf("escrever resposta: %v", err)
 	}
 }
