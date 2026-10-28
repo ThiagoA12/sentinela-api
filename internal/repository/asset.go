@@ -29,6 +29,20 @@ func (r *AssetRepository) List(ctx context.Context) ([]domain.Asset, error) {
 	return assets, nil
 }
 
+func (r *AssetRepository) Create(ctx context.Context, a domain.Asset) (domain.Asset, error) {
+	row, err := r.q.CreateAsset(ctx, db.CreateAssetParams{
+		Name:        a.Name,
+		Identifier:  a.Identifier,
+		Type:        string(a.Type),
+		Criticality: string(a.Criticality),
+		Description: a.Description,
+	})
+	if err != nil {
+		return domain.Asset{}, fmt.Errorf("criar ativo: %w", identifierInUse(err))
+	}
+	return toDomainAsset(row), nil
+}
+
 func toDomainAsset(a db.Asset) domain.Asset {
 	return domain.Asset{
 		ID:          a.ID,
