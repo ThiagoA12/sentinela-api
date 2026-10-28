@@ -7,50 +7,34 @@ package db
 
 import (
 	"context"
-	"time"
-
-	"github.com/google/uuid"
 )
 
 const listAssets = `-- name: ListAssets :many
-SELECT id, name, identifier, type, criticality, description,
-    created_at, updated_at, deleted_at, version
+SELECT id, name, identifier, type, criticality, created_at,
+    description, updated_at, deleted_at, version
 FROM assets
 WHERE deleted_at IS NULL
 ORDER BY id
 LIMIT 100
 `
 
-type ListAssetsRow struct {
-	ID          uuid.UUID
-	Name        string
-	Identifier  string
-	Type        string
-	Criticality string
-	Description *string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeletedAt   *time.Time
-	Version     int32
-}
-
-func (q *Queries) ListAssets(ctx context.Context) ([]ListAssetsRow, error) {
+func (q *Queries) ListAssets(ctx context.Context) ([]Asset, error) {
 	rows, err := q.db.Query(ctx, listAssets)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListAssetsRow
+	var items []Asset
 	for rows.Next() {
-		var i ListAssetsRow
+		var i Asset
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
 			&i.Identifier,
 			&i.Type,
 			&i.Criticality,
-			&i.Description,
 			&i.CreatedAt,
+			&i.Description,
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.Version,
