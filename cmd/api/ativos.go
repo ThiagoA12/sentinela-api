@@ -37,8 +37,8 @@ func toAtivoResponse(a domain.Asset) ativoResponse {
 		Type:        string(a.Type),
 		Criticality: string(a.Criticality),
 		Description: a.Description,
-		CreatedAt:   a.CreatedAt,
-		UpdatedAt:   a.UpdatedAt,
+		CreatedAt:   a.CreatedAt.UTC(),
+		UpdatedAt:   a.UpdatedAt.UTC(),
 		Version:     a.Version,
 	}
 }
