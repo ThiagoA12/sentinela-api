@@ -76,6 +76,15 @@ func run() error {
 	stop()
 
 	log.Println("sinal recebido, desligando...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		return err
+	}
+
+	log.Println("servidor encerrado")
 	return nil
 }
 
