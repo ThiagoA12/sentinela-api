@@ -20,6 +20,10 @@ func (f *fakeAssetStore) List(ctx context.Context) ([]domain.Asset, error) {
 	return f.assets, f.err
 }
 
+func (f *fakeAssetStore) Create(ctx context.Context, a domain.Asset) (domain.Asset, error) {
+	return a, f.err
+}
+
 func TestAssetServiceList(t *testing.T) {
 	want := []domain.Asset{
 		{ID: uuid.New(), Name: "srv-web-01", Type: domain.AssetTypeServidor},
