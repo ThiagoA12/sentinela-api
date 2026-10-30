@@ -219,3 +219,16 @@ func TestAssetServiceCreateValidacao(t *testing.T) {
 		})
 	}
 }
+
+func TestAssetServiceCreatePropagaErro(t *testing.T) {
+	errConflito := apperror.Conflict("ja existe um ativo com este identificador", errors.New("23505"))
+	svc := service.NewAssetService(&fakeAssetStore{err: errConflito})
+
+	_, err := svc.Create(context.Background(), validInput())
+	if !errors.Is(err, errConflito) {
+		t.Fatalf("erro = %v, esperado %v", err, errConflito)
+	}
+	if apperror.KindOf(err) != apperror.KindConflict {
+		t.Errorf("KinkOf = %v, esperado KindConflict", apperror.KindOf(err))
+	}
+}
