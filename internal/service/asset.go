@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	maxNameLen       = 120
-	MaxIdentifierLen = 255
+	maxNameLen        = 120
+	maxIdentifierLen  = 255
+	maxDescriptionLen = 2000
 )
 
 type assetStore interface {
@@ -54,14 +55,40 @@ func newAsset(in CreateAssetInput) (domain.Asset, []apperror.FieldError) {
 	fields = checkText(fields, "name", name, maxNameLen)
 
 	identifier := strings.TrimSpace(in.Identifier)
-	fields = checkText(fields, "identifier", identifier, MaxIdentifierLen)
+	fields = checkText(fields, "identifier", identifier, maxIdentifierLen)
+
+	assetType := domain.AssetType(in.Type)
+	if !assetType.Valid() {
+		fields = append(fields, apperror.FieldError{
+			Field:  "type",
+			Reason: "deve ser: servidor, aplicacao, rede, estacao ou nuvem",
+		})
+	}
+
+	criticality := domain.Criticality(in.Criticality)
+	if !criticality.Valid() {
+		fields = append(fields, apperror.FieldError{
+			Field:  "criticality",
+			Reason: "deve ser: baixa, media, alta ou critica",
+		})
+	}
+
+	var description *string
+	if in.Description != nil {
+		switch d := strings.TrimSpace(*in.Description); {
+		case utf8.RuneCountInString(d) > maxDescriptionLen:
+			fields = append(fields, tooLong("description", maxDescriptionLen))
+		case d != "":
+			description = &d
+		}
+	}
 
 	return domain.Asset{
 		Name:        name,
 		Identifier:  identifier,
-		Type:        domain.AssetType(in.Type),
-		Criticality: domain.Criticality(in.Criticality),
-		Description: in.Description,
+		Type:        assetType,
+		Criticality: criticality,
+		Description: description,
 	}, fields
 }
 
