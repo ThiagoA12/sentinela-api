@@ -10,6 +10,8 @@ const (
 	KindNotFound
 	KindConflict
 	KindValidation
+	KindTooLarge
+	KindUnsupportedMedia
 )
 
 type FieldError struct {
@@ -49,6 +51,14 @@ func Conflict(detail string, err error) *Error {
 
 func Validation(fields []FieldError) *Error {
 	return &Error{Kind: KindValidation, Detail: "campo(s) invalidos", Fields: fields}
+}
+
+func TooLarge(detail string) *Error {
+	return &Error{Kind: KindTooLarge, Detail: detail}
+}
+
+func UnsupportedMedia(detail string) *Error {
+	return &Error{Kind: KindUnsupportedMedia, Detail: detail}
 }
 
 func KindOf(err error) Kind {

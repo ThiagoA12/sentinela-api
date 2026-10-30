@@ -22,6 +22,8 @@ func TestKindOf(t *testing.T) {
 		{"conflito embrulhado", fmt.Errorf("criar ativo: %w", apperror.Conflict("duplicado", causa)), apperror.KindConflict},
 		{"embrulhado duas vezes", fmt.Errorf("a: %w", fmt.Errorf("b: %w", apperror.Invalid("x"))), apperror.KindInvalid},
 		{"sem Kind", &apperror.Error{Detail: "esquecido"}, apperror.KindInternal},
+		{"corpo grande", apperror.TooLarge("corpo maior que 1 MB"), apperror.KindTooLarge},
+		{"midia nao suportada", apperror.UnsupportedMedia("Content-Type deve ser application/json"), apperror.KindUnsupportedMedia},
 	}
 
 	for _, tt := range tests {

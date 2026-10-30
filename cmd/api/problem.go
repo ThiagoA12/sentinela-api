@@ -33,6 +33,10 @@ func statusOf(k apperror.Kind) int {
 		return http.StatusConflict
 	case apperror.KindValidation:
 		return http.StatusUnprocessableEntity
+	case apperror.KindTooLarge:
+		return http.StatusRequestEntityTooLarge
+	case apperror.KindUnsupportedMedia:
+		return http.StatusUnsupportedMediaType
 	default:
 		return http.StatusInternalServerError
 	}
