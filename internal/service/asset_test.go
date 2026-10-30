@@ -3,10 +3,13 @@ package service_test
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 
+	"github.com/ThiagoA12/sentinela-api/internal/apperror"
 	"github.com/ThiagoA12/sentinela-api/internal/domain"
 	"github.com/ThiagoA12/sentinela-api/internal/service"
 )
@@ -104,5 +107,115 @@ func TestAssetServiceCreate(t *testing.T) {
 	}
 	if got.ID == uuid.Nil {
 		t.Error("ID vazio no ativo devolvido")
+	}
+}
+
+func validInput() service.CreateAssetInput {
+	return service.CreateAssetInput{
+		Name:        "srv-web-01",
+		Identifier:  "10.0.0.10",
+		Type:        "servidor",
+		Criticality: "alta",
+		Description: ptr("servidor web principal"),
+	}
+}
+
+func TestAssetServiceCreateValidacao(t *testing.T) {
+	tests := []struct {
+		name   string
+		modify func(in *service.CreateAssetInput)
+		want   []apperror.FieldError
+	}{
+		{
+			name:   "name com 120 caracteres",
+			modify: func(in *service.CreateAssetInput) { in.Name = strings.Repeat("a", 120) },
+		},
+		{
+			name:   "name com 120 caracteres acentuados",
+			modify: func(in *service.CreateAssetInput) { in.Name = strings.Repeat("ç", 120) },
+		},
+		{
+			name:   "name vazio",
+			modify: func(in *service.CreateAssetInput) { in.Name = "" },
+			want:   []apperror.FieldError{{Field: "name", Reason: "obrigatorio"}},
+		},
+		{
+			name:   "name so com espacos",
+			modify: func(in *service.CreateAssetInput) { in.Name = "   " },
+			want:   []apperror.FieldError{{Field: "name", Reason: "obrigatorio"}},
+		},
+		{
+			name:   "name com 121 caracteres",
+			modify: func(in *service.CreateAssetInput) { in.Name = strings.Repeat("a", 121) },
+			want:   []apperror.FieldError{{Field: "name", Reason: "maximo de 120 caracteres"}},
+		},
+		{
+			name:   "type desconhecido",
+			modify: func(in *service.CreateAssetInput) { in.Type = "impressora" },
+			want: []apperror.FieldError{{
+				Field:  "type",
+				Reason: "deve ser: servidor, aplicacao, rede, estacao ou nuvem",
+			}},
+		},
+		{
+			name:   "criticality em maiuscula",
+			modify: func(in *service.CreateAssetInput) { in.Criticality = "ALTA" },
+			want: []apperror.FieldError{{
+				Field:  "criticality",
+				Reason: "deve ser: baixa, media, alta ou critica",
+			}},
+		},
+		{
+			name:   "description com 2001 caracteres",
+			modify: func(in *service.CreateAssetInput) { in.Description = ptr(strings.Repeat("a", 2001)) },
+			want:   []apperror.FieldError{{Field: "description", Reason: "maximo de 2000 caracteres"}},
+		},
+		{
+			name: "varios erros de uma vez",
+			modify: func(in *service.CreateAssetInput) {
+				in.Name = ""
+				in.Identifier = ""
+				in.Type = ""
+				in.Criticality = ""
+				in.Description = ptr(strings.Repeat("a", 2001))
+			},
+			want: []apperror.FieldError{
+				{Field: "name", Reason: "obrigatorio"},
+				{Field: "identifier", Reason: "obrigatorio"},
+				{Field: "type", Reason: "deve ser: servidor, aplicacao, rede, estacao ou nuvem"},
+				{Field: "criticality", Reason: "deve ser: baixa, media, alta ou critica"},
+				{Field: "description", Reason: "maximo de 2000 caracteres"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeAssetStore{}
+			svc := service.NewAssetService(store)
+
+			in := validInput()
+			tt.modify(&in)
+
+			_, err := svc.Create(context.Background(), in)
+
+			if tt.want == nil {
+				if err != nil {
+					t.Fatalf("erro inesperado: %v", err)
+				}
+				return
+			}
+
+			var appErr *apperror.Error
+			if !errors.As(err, &appErr) || appErr.Kind != apperror.KindValidation {
+				t.Fatalf("erro = %v, esperado erro de validacao", err)
+			}
+			if !slices.Equal(appErr.Fields, tt.want) {
+				t.Errorf("fields = %v, esperado %v", appErr.Fields, tt.want)
+			}
+			if store.created != nil {
+				t.Error("store.Create foi chamado com entrada invalida")
+			}
+		})
 	}
 }
