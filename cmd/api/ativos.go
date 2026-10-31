@@ -13,6 +13,11 @@ import (
 	"github.com/ThiagoA12/sentinela-api/internal/service"
 )
 
+type AssetService interface {
+	List(ctx context.Context) ([]domain.Asset, error)
+	Create(ctx context.Context, in service.CreateAssetInput) (domain.Asset, error)
+}
+
 type ativoResponse struct {
 	ID          uuid.UUID `json:"id"`
 	Name        string    `json:"name"`
@@ -43,7 +48,7 @@ func toAtivoResponse(a domain.Asset) ativoResponse {
 	}
 }
 
-func handleListaAtivos(svc *service.AssetService) http.HandlerFunc {
+func handleListaAtivos(svc AssetService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
