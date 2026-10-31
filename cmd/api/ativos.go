@@ -13,7 +13,7 @@ import (
 	"github.com/ThiagoA12/sentinela-api/internal/service"
 )
 
-type AssetService interface {
+type assetService interface {
 	List(ctx context.Context) ([]domain.Asset, error)
 	Create(ctx context.Context, in service.CreateAssetInput) (domain.Asset, error)
 }
@@ -56,7 +56,7 @@ func toAtivoResponse(a domain.Asset) ativoResponse {
 	}
 }
 
-func handleListaAtivos(svc AssetService) http.HandlerFunc {
+func handleListaAtivos(svc assetService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
@@ -80,7 +80,7 @@ func handleListaAtivos(svc AssetService) http.HandlerFunc {
 	}
 }
 
-func handleCriaAtivo(svc AssetService) http.HandlerFunc {
+func handleCriaAtivo(svc assetService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req criarAtivoRequest
 		if err := decodeJSON(w, r, &req); err != nil {
@@ -104,7 +104,7 @@ func handleCriaAtivo(svc AssetService) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Location", "/api/v1/ativos"+a.ID.String())
+		w.Header().Set("Location", "/api/v1/ativos/"+a.ID.String())
 		w.WriteHeader(http.StatusCreated)
 		if err := json.NewEncoder(w).Encode(toAtivoResponse(a)); err != nil {
 			log.Printf("escrever resposta: %v", err)
