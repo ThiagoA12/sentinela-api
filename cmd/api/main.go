@@ -52,6 +52,7 @@ func run() error {
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /readyz", handleReadyz(pool))
 	mux.HandleFunc("GET /api/v1/ativos", handleListaAtivos(assetSvc))
+	mux.HandleFunc("POST /api/v1/ativos", handleCriaAtivo(assetSvc))
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,

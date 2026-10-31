@@ -18,6 +18,14 @@ type AssetService interface {
 	Create(ctx context.Context, in service.CreateAssetInput) (domain.Asset, error)
 }
 
+type criarAtivoRequest struct {
+	Name        string  `json:"name"`
+	Identifier  string  `json:"identifier"`
+	Type        string  `json:"type"`
+	Criticality string  `json:"criticality"`
+	Description *string `json:"description"`
+}
+
 type ativoResponse struct {
 	ID          uuid.UUID `json:"id"`
 	Name        string    `json:"name"`
@@ -67,6 +75,38 @@ func handleListaAtivos(svc AssetService) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			log.Printf("escrever resposta: %v", err)
+		}
+	}
+}
+
+func handleCriaAtivo(svc AssetService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req criarAtivoRequest
+		if err := decodeJSON(w, r, &req); err != nil {
+			writeProblem(w, r, err)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		a, err := svc.Create(ctx, service.CreateAssetInput{
+			Name:        req.Name,
+			Identifier:  req.Identifier,
+			Type:        req.Type,
+			Criticality: req.Criticality,
+			Description: req.Description,
+		})
+		if err != nil {
+			writeProblem(w, r, err)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Location", "/api/v1/ativos"+a.ID.String())
+		w.WriteHeader(http.StatusCreated)
+		if err := json.NewEncoder(w).Encode(toAtivoResponse(a)); err != nil {
 			log.Printf("escrever resposta: %v", err)
 		}
 	}
