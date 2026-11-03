@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,7 +11,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/tools/go/analysis/passes/errorsas"
 
+	"github.com/ThiagoA12/sentinela-api/internal/apperror"
 	"github.com/ThiagoA12/sentinela-api/internal/domain"
 	"github.com/ThiagoA12/sentinela-api/internal/service"
 )
@@ -144,6 +147,86 @@ func TestCriaAtivoRequisicaoRecusada(t *testing.T) {
 
 			if svc.created != nil {
 				t.Errorf("service nao deveria ter sido chamado")
+			}
+		})
+	}
+}
+
+func TestCriaAtivoErroDoService(t *testing.T) {
+	valido := `{"name":"Servidor web", "identifier":"srv-web-01", "type":"servidor", "criticality":"alta"}`
+
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantDetail string
+		wantField  int
+		naoVazar   string
+	}{
+		{
+			name: "validacao",
+			err: apperror.Validation([]apperror.FieldError{
+				{Field: "name", Reason: "obrigado"},
+				{FIeld: "type", Reason: "invalido"},
+			}),
+			wantStatus: http.StatusUnprocessableEntity,
+			wantDetail: "campo(s) invalidos",
+			wantField: 2,
+		},
+		{
+			name:       "conflito",
+			err:        apperror.Conflict("ja existe um ativo com este identificador", errors.New("duplicate key value violates unique constraint")),
+			wantStatus: http.StatusConflict,
+			wantDetail: "ja existe um ativo com este identificador",
+			naoVazar:   "duplicate key",
+		},
+		{
+			name:       "erro interno",
+			err:        errors.New(`pq: relation "assets" does not exist`),
+			wantStatus: http.StatusInternalServerError,
+			wantDetail: "erro inesperado. tente novamente mais tarde",
+			naoVazar:   "relation",
+		},
+
+	}
+
+	for _, tt := tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeAssetService{err: tt.err}
+			rec := postAtivo(svc, "application/json", valido)
+
+			var p struct {
+				Detail string `json:"detail"`
+				Errors []struct {
+					Field  string `json:"field"`
+					Reason string `json:"reason"`
+				} `json:"errors"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+				t.Fatal("resposta nao e json: %v", err)
+			}
+
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("status = %d, esperado %d", rec.Code, tt.wantStatus)
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/problem+json" {
+				t.Errorf("Content-Type = %q, esperado application/problem+json", got)
+			}
+			if got := rec.Header().Get("Location"); got != "" {
+				t.Errorf("Location = %q, nao deveria existir em erro", got)
+			}
+			if p.Detail != tt.wantDetail {
+				t.Errorf("detail = %q, esperado %q", p.Detail, tt.wantDetail)
+			}
+			if len(p.Errors) != tt.wantFields {
+				t.Errorf("errors tem %d itens, esperado %d", len(p.Errors), tt.wantFields)
+			}
+			if tt.naoVazar != "" && strings.Contains(rec.Body.String(), tt.naoVazar) {
+				t.Errorf("resposta vazou %q: %s", tt.naoVazar, rec.Body.String())
+			}
+			if svc.created == nil {
+				t.Error("service deveria ter sido chamado")
 			}
 		})
 	}
