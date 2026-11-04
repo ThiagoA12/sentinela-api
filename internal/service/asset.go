@@ -22,6 +22,7 @@ type assetStore interface {
 	Create(ctx context.Context, a domain.Asset) (domain.Asset, error)
 	Get(ctx context.Context, id uuid.UUID) (domain.Asset, error)
 	Update(ctx context.Context, a domain.Asset) (domain.Asset, error)
+	Delete(ctx context.Context, id uuid.UUID) error
 }
 
 type AssetService struct {
@@ -81,6 +82,10 @@ func (s *AssetService) Update(ctx context.Context, id uuid.UUID, in UpdateAssetI
 	a.ID = id
 	a.Version = *in.Version
 	return s.store.Update(ctx, a)
+}
+
+func (s *AssetService) Delete(ctx context.Context, id uuid.UUID) error {
+	return s.store.Delete(ctx, id)
 }
 
 func mergeAsset(current domain.Asset, in UpdateAssetInput) CreateAssetInput {

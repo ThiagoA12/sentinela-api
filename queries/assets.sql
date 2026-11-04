@@ -30,3 +30,10 @@ SET name = $3,
 WHERE id = $1 AND version = $2 AND deleted_at IS NULL
 RETURNING id, name, identifier, type, criticality, created_at,
     description, updated_at, deleted_at, version;
+
+-- name: DeleteAsset :execrows
+UPDATE assets
+SET deleted_at = now(),
+    updated_at = now(),
+    version = version + 1
+WHERE id = $1 AND deleted_at IS NULL;

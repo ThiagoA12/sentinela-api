@@ -50,6 +50,22 @@ func (q *Queries) CreateAsset(ctx context.Context, arg CreateAssetParams) (Asset
 	return i, err
 }
 
+const deleteAsset = `-- name: DeleteAsset :execrows
+UPDATE assets
+SET deleted_at = now(),
+    updated_at = now(),
+    version = version + 1
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+func (q *Queries) DeleteAsset(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteAsset, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getAsset = `-- name: GetAsset :one
 SELECT id, name, identifier, type, criticality, created_at,
     description, updated_at, deleted_at, version

@@ -77,6 +77,17 @@ func (r *AssetRepository) Update(ctx context.Context, a domain.Asset) (domain.As
 	return toDomainAsset(row), nil
 }
 
+func (r *AssetRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	n, err := r.q.DeleteAsset(ctx, id)
+	if err != nil {
+		return fmt.Errorf("excluir ativo: %w", err)
+	}
+	if n == 0 {
+		return apperror.NotFound("ativo nao encontrado")
+	}
+	return nil
+}
+
 func toDomainAsset(a db.Asset) domain.Asset {
 	return domain.Asset{
 		ID:          a.ID,

@@ -58,6 +58,10 @@ func (f *fakeAssetStore) Update(ctx context.Context, a domain.Asset) (domain.Ass
 	return out, nil
 }
 
+func (f *fakeAssetStore) Delete(ctx context.Context, id uuid.UUID) error {
+	return f.err
+}
+
 func ptr[T any](v T) *T {
 	return &v
 }
