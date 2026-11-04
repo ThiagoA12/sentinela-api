@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ThiagoA12/sentinela-api/internal/apperror"
 	"github.com/ThiagoA12/sentinela-api/internal/domain"
 	"github.com/ThiagoA12/sentinela-api/internal/service"
 )
@@ -16,6 +17,7 @@ import (
 type assetService interface {
 	List(ctx context.Context) ([]domain.Asset, error)
 	Create(ctx context.Context, in service.CreateAssetInput) (domain.Asset, error)
+	Get(ctx context.Context, id uuid.UUID) (domain.Asset, error)
 }
 
 type criarAtivoRequest struct {
@@ -106,6 +108,31 @@ func handleCriaAtivo(svc assetService) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Location", "/api/v1/ativos/"+a.ID.String())
 		w.WriteHeader(http.StatusCreated)
+		if err := json.NewEncoder(w).Encode(toAtivoResponse(a)); err != nil {
+			log.Printf("escrever resposta: %v", err)
+		}
+	}
+}
+
+func handleBuscaAtivo(svc assetService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := uuid.Parse(r.PathValue("id"))
+		if err != nil {
+			writeProblem(w, r, apperror.Invalid("id invalido"))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		a, err := svc.Get(ctx, id)
+		if err != nil {
+			writeProblem(w, r, err)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
 		if err := json.NewEncoder(w).Encode(toAtivoResponse(a)); err != nil {
 			log.Printf("escrever resposta: %v", err)
 		}

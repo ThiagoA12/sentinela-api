@@ -22,6 +22,7 @@ var fixedTime = time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 type fakeAssetService struct {
 	err     error
 	created *service.CreateAssetInput
+	gotID   *uuid.UUID
 }
 
 func (f *fakeAssetService) List(ctx context.Context) ([]domain.Asset, error) {
@@ -40,6 +41,23 @@ func (f *fakeAssetService) Create(ctx context.Context, in service.CreateAssetInp
 		Type:        domain.AssetType(in.Type),
 		Criticality: domain.Criticality(in.Criticality),
 		Description: in.Description,
+		CreatedAt:   fixedTime,
+		UpdatedAt:   fixedTime,
+		Version:     1,
+	}, nil
+}
+
+func (f *fakeAssetService) Get(ctx context.Context, id uuid.UUID) (domain.Asset, error) {
+	f.gotID = &id
+	if f.err != nil {
+		return domain.Asset{}, f.err
+	}
+	return domain.Asset{
+		ID:          id,
+		Name:        "Servidor web",
+		Identifier:  "srv-web-01",
+		Type:        domain.AssetTypeServidor,
+		Criticality: domain.CriticalityAlta,
 		CreatedAt:   fixedTime,
 		UpdatedAt:   fixedTime,
 		Version:     1,
