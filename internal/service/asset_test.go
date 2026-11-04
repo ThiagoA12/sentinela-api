@@ -34,6 +34,18 @@ func (f *fakeAssetStore) Create(ctx context.Context, a domain.Asset) (domain.Ass
 	return a, nil
 }
 
+func (f *fakeAssetStore) Get(ctx context.Context, id uuid.UUID) (domain.Asset, error) {
+	if f.err != nil {
+		return domain.Asset{}, f.err
+	}
+	for _, a := range f.assets {
+		if a.ID == id {
+			return a, nil
+		}
+	}
+	return domain.Asset{}, apperror.NotFound("ativo nao encontrado")
+}
+
 func ptr(s string) *string {
 	return &s
 }

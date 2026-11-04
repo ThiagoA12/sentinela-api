@@ -8,6 +8,7 @@ import (
 
 	"github.com/ThiagoA12/sentinela-api/internal/apperror"
 	"github.com/ThiagoA12/sentinela-api/internal/domain"
+	"github.com/google/uuid"
 )
 
 const (
@@ -19,6 +20,7 @@ const (
 type assetStore interface {
 	List(ctx context.Context) ([]domain.Asset, error)
 	Create(ctx context.Context, a domain.Asset) (domain.Asset, error)
+	Get(ctx context.Context, id uuid.UUID) (domain.Asset, error)
 }
 
 type AssetService struct {
@@ -46,6 +48,10 @@ func (s *AssetService) Create(ctx context.Context, in CreateAssetInput) (domain.
 		return domain.Asset{}, apperror.Validation(fields)
 	}
 	return s.store.Create(ctx, a)
+}
+
+func (s *AssetService) Get(ctx context.Context, id uuid.UUID) (domain.Asset, error) {
+	return s.store.Get(ctx, id)
 }
 
 func newAsset(in CreateAssetInput) (domain.Asset, []apperror.FieldError) {
