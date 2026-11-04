@@ -58,6 +58,25 @@ func (r *AssetRepository) Get(ctx context.Context, id uuid.UUID) (domain.Asset, 
 	return toDomainAsset(row), nil
 }
 
+func (r *AssetRepository) Update(ctx context.Context, a domain.Asset) (domain.Asset, error) {
+	row, err := r.q.UpdateAsset(ctx, db.UpdateAssetParams{
+		ID:          a.ID,
+		Version:     a.Version,
+		Name:        a.Name,
+		Identifier:  a.Identifier,
+		Type:        string(a.Type),
+		Criticality: string(a.Criticality),
+		Description: a.Description,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Asset{}, apperror.Conflict("ativo alterado por outra requisicao; busque a versao atual e tente de novo", err)
+	}
+	if err != nil {
+		return domain.Asset{}, fmt.Errorf("atualizar ativo: %w", identifierInUse(err))
+	}
+	return toDomainAsset(row), nil
+}
+
 func toDomainAsset(a db.Asset) domain.Asset {
 	return domain.Asset{
 		ID:          a.ID,

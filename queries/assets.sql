@@ -17,3 +17,16 @@ SELECT id, name, identifier, type, criticality, created_at,
     description, updated_at, deleted_at, version
 FROM assets
 WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: UpdateAsset :one
+UPDATE assets
+SET name = $3,
+    identifier = $4,
+    type = $5,
+    criticality = $6,
+    description = $7,
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1 AND version = $2 AND deleted_at IS NULL
+RETURNING id, name, identifier, type, criticality, created_at,
+    description, updated_at, deleted_at, version;

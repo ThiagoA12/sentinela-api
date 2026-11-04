@@ -114,3 +114,53 @@ func (q *Queries) ListAssets(ctx context.Context) ([]Asset, error) {
 	}
 	return items, nil
 }
+
+const updateAsset = `-- name: UpdateAsset :one
+UPDATE assets
+SET name = $3,
+    identifier = $4,
+    type = $5,
+    criticality = $6,
+    description = $7,
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1 AND version = $2 AND deleted_at IS NULL
+RETURNING id, name, identifier, type, criticality, created_at,
+    description, updated_at, deleted_at, version
+`
+
+type UpdateAssetParams struct {
+	ID          uuid.UUID
+	Version     int32
+	Name        string
+	Identifier  string
+	Type        string
+	Criticality string
+	Description *string
+}
+
+func (q *Queries) UpdateAsset(ctx context.Context, arg UpdateAssetParams) (Asset, error) {
+	row := q.db.QueryRow(ctx, updateAsset,
+		arg.ID,
+		arg.Version,
+		arg.Name,
+		arg.Identifier,
+		arg.Type,
+		arg.Criticality,
+		arg.Description,
+	)
+	var i Asset
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Identifier,
+		&i.Type,
+		&i.Criticality,
+		&i.CreatedAt,
+		&i.Description,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.Version,
+	)
+	return i, err
+}
