@@ -2,10 +2,14 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/ThiagoA12/sentinela-api/internal/apperror"
 	"github.com/ThiagoA12/sentinela-api/internal/db"
 	"github.com/ThiagoA12/sentinela-api/internal/domain"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 type AssetRepository struct {
@@ -39,6 +43,17 @@ func (r *AssetRepository) Create(ctx context.Context, a domain.Asset) (domain.As
 	})
 	if err != nil {
 		return domain.Asset{}, fmt.Errorf("criar ativo: %w", identifierInUse(err))
+	}
+	return toDomainAsset(row), nil
+}
+
+func (r *AssetRepository) Get(ctx context.Context, id uuid.UUID) (domain.Asset, error) {
+	row, err := r.q.GetAsset(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Asset{}, apperror.NotFound("ativo nao encontrado")
+	}
+	if err != nil {
+		return domain.Asset{}, fmt.Errorf("buscar ativo: %w", err)
 	}
 	return toDomainAsset(row), nil
 }

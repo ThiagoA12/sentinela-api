@@ -7,6 +7,8 @@ package db
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 const createAsset = `-- name: CreateAsset :one
@@ -32,6 +34,31 @@ func (q *Queries) CreateAsset(ctx context.Context, arg CreateAssetParams) (Asset
 		arg.Criticality,
 		arg.Description,
 	)
+	var i Asset
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Identifier,
+		&i.Type,
+		&i.Criticality,
+		&i.CreatedAt,
+		&i.Description,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.Version,
+	)
+	return i, err
+}
+
+const getAsset = `-- name: GetAsset :one
+SELECT id, name, identifier, type, criticality, created_at,
+    description, updated_at, deleted_at, version
+FROM assets
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+func (q *Queries) GetAsset(ctx context.Context, id uuid.UUID) (Asset, error) {
+	row := q.db.QueryRow(ctx, getAsset, id)
 	var i Asset
 	err := row.Scan(
 		&i.ID,
