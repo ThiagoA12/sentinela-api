@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"golang.org/x/tools/go/analysis/passes/errorsas"
 
 	"github.com/ThiagoA12/sentinela-api/internal/apperror"
 	"github.com/ThiagoA12/sentinela-api/internal/domain"
@@ -166,12 +165,12 @@ func TestCriaAtivoErroDoService(t *testing.T) {
 		{
 			name: "validacao",
 			err: apperror.Validation([]apperror.FieldError{
-				{Field: "name", Reason: "obrigado"},
-				{FIeld: "type", Reason: "invalido"},
+				{Field: "name", Reason: "obrigatorio"},
+				{Field: "type", Reason: "invalido"},
 			}),
 			wantStatus: http.StatusUnprocessableEntity,
 			wantDetail: "campo(s) invalidos",
-			wantField: 2,
+			wantField:  2,
 		},
 		{
 			name:       "conflito",
@@ -187,10 +186,9 @@ func TestCriaAtivoErroDoService(t *testing.T) {
 			wantDetail: "erro inesperado. tente novamente mais tarde",
 			naoVazar:   "relation",
 		},
-
 	}
 
-	for _, tt := tt := range tests {
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := &fakeAssetService{err: tt.err}
 			rec := postAtivo(svc, "application/json", valido)
@@ -203,9 +201,8 @@ func TestCriaAtivoErroDoService(t *testing.T) {
 				} `json:"errors"`
 			}
 			if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
-				t.Fatal("resposta nao e json: %v", err)
+				t.Fatalf("resposta nao e json: %v", err)
 			}
-
 
 			if rec.Code != tt.wantStatus {
 				t.Errorf("status = %d, esperado %d", rec.Code, tt.wantStatus)
@@ -219,8 +216,8 @@ func TestCriaAtivoErroDoService(t *testing.T) {
 			if p.Detail != tt.wantDetail {
 				t.Errorf("detail = %q, esperado %q", p.Detail, tt.wantDetail)
 			}
-			if len(p.Errors) != tt.wantFields {
-				t.Errorf("errors tem %d itens, esperado %d", len(p.Errors), tt.wantFields)
+			if len(p.Errors) != tt.wantField {
+				t.Errorf("errors tem %d itens, esperado %d", len(p.Errors), tt.wantField)
 			}
 			if tt.naoVazar != "" && strings.Contains(rec.Body.String(), tt.naoVazar) {
 				t.Errorf("resposta vazou %q: %s", tt.naoVazar, rec.Body.String())
