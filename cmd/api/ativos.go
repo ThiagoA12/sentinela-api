@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ThiagoA12/sentinela-api/internal/apperror"
 	"github.com/ThiagoA12/sentinela-api/internal/domain"
 	"github.com/ThiagoA12/sentinela-api/internal/service"
 )
@@ -18,6 +17,7 @@ type assetService interface {
 	List(ctx context.Context) ([]domain.Asset, error)
 	Create(ctx context.Context, in service.CreateAssetInput) (domain.Asset, error)
 	Get(ctx context.Context, id uuid.UUID) (domain.Asset, error)
+	Update(ctx context.Context, id uuid.UUID, in service.UpdateAssetInput) (domain.Asset, error)
 }
 
 type criarAtivoRequest struct {
@@ -26,6 +26,15 @@ type criarAtivoRequest struct {
 	Type        string  `json:"type"`
 	Criticality string  `json:"criticality"`
 	Description *string `json:"description"`
+}
+
+type atualizarAtivoRequest struct {
+	Name        *string `json:"name"`
+	Identifier  *string `json:"identifier"`
+	Type        *string `json:"type"`
+	Criticality *string `json:"criticality"`
+	Description *string `json:"description"`
+	Version     *int32  `json:"version"`
 }
 
 type ativoResponse struct {
@@ -116,9 +125,9 @@ func handleCriaAtivo(svc assetService) http.HandlerFunc {
 
 func handleBuscaAtivo(svc assetService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id, err := uuid.Parse(r.PathValue("id"))
+		id, err := pathID(r)
 		if err != nil {
-			writeProblem(w, r, apperror.Invalid("id invalido"))
+			writeProblem(w, r, err)
 			return
 		}
 
@@ -126,6 +135,44 @@ func handleBuscaAtivo(svc assetService) http.HandlerFunc {
 		defer cancel()
 
 		a, err := svc.Get(ctx, id)
+		if err != nil {
+			writeProblem(w, r, err)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(toAtivoResponse(a)); err != nil {
+			log.Printf("escrever resposta: %v", err)
+		}
+	}
+}
+
+func handleAtualizaAtivo(svc assetService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := pathID(r)
+		if err != nil {
+			writeProblem(w, r, err)
+			return
+		}
+
+		var req atualizarAtivoRequest
+		if err := decodeJSON(w, r, &req); err != nil {
+			writeProblem(w, r, err)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		a, err := svc.Update(ctx, id, service.UpdateAssetInput{
+			Name:        req.Name,
+			Identifier:  req.Identifier,
+			Type:        req.Type,
+			Criticality: req.Criticality,
+			Description: req.Description,
+			Version:     req.Version,
+		})
 		if err != nil {
 			writeProblem(w, r, err)
 			return

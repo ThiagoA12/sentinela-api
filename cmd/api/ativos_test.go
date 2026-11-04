@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ type fakeAssetService struct {
 	err     error
 	created *service.CreateAssetInput
 	gotID   *uuid.UUID
+	updated *service.UpdateAssetInput
 }
 
 func (f *fakeAssetService) List(ctx context.Context) ([]domain.Asset, error) {
@@ -62,6 +64,28 @@ func (f *fakeAssetService) Get(ctx context.Context, id uuid.UUID) (domain.Asset,
 		UpdatedAt:   fixedTime,
 		Version:     1,
 	}, nil
+}
+
+func (f *fakeAssetService) Update(ctx context.Context, id uuid.UUID, in service.UpdateAssetInput) (domain.Asset, error) {
+	f.gotID = &id
+	f.updated = &in
+	if f.err != nil {
+		return domain.Asset{}, f.err
+	}
+	return domain.Asset{
+		ID:          id,
+		Name:        "Servidor web",
+		Identifier:  "srv-web-01",
+		Type:        domain.AssetTypeServidor,
+		Criticality: domain.CriticalityMedia,
+		CreatedAt:   fixedTime,
+		UpdatedAt:   fixedTime,
+		Version:     4,
+	}, nil
+}
+
+func ptr[T any](v T) *T {
+	return &v
 }
 
 func postAtivo(svc *fakeAssetService, contentType, body string) *httptest.ResponseRecorder {
@@ -321,6 +345,99 @@ func TestBuscaAtivoErros(t *testing.T) {
 				t.Errorf("detail = %q, esperado %q", p.Detail, tt.wantDetail)
 			}
 			if chamado := svc.gotID != nil; chamado != tt.wantChamado {
+				t.Errorf("service chamado = %v, esperado %v", chamado, tt.wantChamado)
+			}
+		})
+	}
+}
+
+func patchAtivo(svc *fakeAssetService, id, body string) *httptest.ResponseRecorder {
+	mux := http.NewServeMux()
+	mux.HandleFunc("PATCH /api/v1/ativos/{id}", handleAtualizaAtivo(svc))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/ativos/"+id, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestAtualizaAtivo(t *testing.T) {
+	id := uuid.MustParse("019a3c1e-0000-7000-8000-000000000001")
+	svc := &fakeAssetService{}
+	rec := patchAtivo(svc, id.String(), `{"criticality":"media","description":"","version":3}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, esperado 200; corpo: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/json" {
+		t.Errorf("Content-Type = %q, esperado application/json", got)
+	}
+	if svc.updated == nil {
+		t.Fatal("service nao foi chamado")
+	}
+	if *svc.gotID != id {
+		t.Errorf("service recebeu id %s, esperado %s", *svc.gotID, id)
+	}
+
+	want := service.UpdateAssetInput{
+		Criticality: ptr("media"),
+		Description: ptr(""),
+		Version:     ptr(int32(3)),
+	}
+	if !reflect.DeepEqual(*svc.updated, want) {
+		t.Errorf("service recebeu %+v, esperado %+v", *svc.updated, want)
+	}
+
+	var body ativoResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("resposta nao e JSON: %v", err)
+	}
+	if body.Version != 4 {
+		t.Errorf("version = %d, esperado 4", body.Version)
+	}
+}
+
+func TestAtualizaAtivoErros(t *testing.T) {
+	valido := "019a3c1e-0000-7000-8000-000000000001"
+	tests := []struct {
+		name        string
+		id          string
+		body        string
+		err         error
+		wantStatus  int
+		wantDetail  string
+		wantChamado bool
+	}{
+		{"id invalido", "abc", `{"version":3}`, nil, http.StatusBadRequest, "id invalido", false},
+		{"version como texto", valido, `{"version":"3"}`, nil, http.StatusBadRequest, "campo version com tipo invalido", false},
+		{"tenta trocar o id", valido, `{"id":"019a3c1e-0000-7000-8000-000000000002","version":3}`, nil, http.StatusBadRequest, `campo desconhecido: "id"`, false},
+		{"validacao", valido, `{"name":"  ","version":3}`, apperror.Validation([]apperror.FieldError{{Field: "name", Reason: "obrigatorio"}}), http.StatusUnprocessableEntity, "campo(s) invalidos", true},
+		{"nao encontrado", valido, `{"version":3}`, apperror.NotFound("ativo nao encontrado"), http.StatusNotFound, "ativo nao encontrado", true},
+		{"versao desatualizada", valido, `{"name":"Novo","version":2}`, apperror.Conflict("ativo alterado por outra requisicao; busque a versao atual e tente de novo", nil), http.StatusConflict, "ativo alterado por outra requisicao; busque a versao atual e tente de novo", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeAssetService{err: tt.err}
+			rec := patchAtivo(svc, tt.id, tt.body)
+
+			var p struct {
+				Detail string `json:"detail"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+				t.Fatalf("resposta nao e JSON: %v", err)
+			}
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("status = %d, esperado %d", rec.Code, tt.wantStatus)
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/problem+json" {
+				t.Errorf("Content-Type = %q, esperado application/problem+json", got)
+			}
+			if p.Detail != tt.wantDetail {
+				t.Errorf("detail = %q, esperado %q", p.Detail, tt.wantDetail)
+			}
+			if chamado := svc.updated != nil; chamado != tt.wantChamado {
 				t.Errorf("service chamado = %v, esperado %v", chamado, tt.wantChamado)
 			}
 		})

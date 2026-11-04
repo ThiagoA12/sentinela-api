@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ThiagoA12/sentinela-api/internal/apperror"
+	"github.com/google/uuid"
 )
 
 const maxBodyBytes = 1 << 20
@@ -57,4 +58,12 @@ func decodeError(err error) error {
 		return apperror.Invalid("campo desconhecido: " + field)
 	}
 	return apperror.Invalid("JSON malformado")
+}
+
+func pathID(r *http.Request) (uuid.UUID, error) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		return uuid.Nil, apperror.Invalid("id invalido")
+	}
+	return id, nil
 }
