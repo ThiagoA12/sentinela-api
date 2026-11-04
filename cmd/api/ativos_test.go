@@ -74,6 +74,15 @@ func postAtivo(svc *fakeAssetService, contentType, body string) *httptest.Respon
 	return rec
 }
 
+func getAtivo(svc *fakeAssetService, id string) *httptest.ResponseRecorder {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/ativos/{id}", handleBuscaAtivo(svc))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/ativos/"+id, nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec
+}
+
 func TestCriaAtivo(t *testing.T) {
 	svc := &fakeAssetService{}
 	body := `{"name":"Servidor web","identifier":"srv-web-01","type":"servidor","criticality":"alta"}`
@@ -242,6 +251,77 @@ func TestCriaAtivoErroDoService(t *testing.T) {
 			}
 			if svc.created == nil {
 				t.Error("service deveria ter sido chamado")
+			}
+		})
+	}
+}
+
+func TestBuscaAtivo(t *testing.T) {
+	id := uuid.MustParse("019a3c1e-0000-7000-8000-000000000001")
+	svc := &fakeAssetService{}
+	rec := getAtivo(svc, id.String())
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, esperado 200; corpo: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/json" {
+		t.Errorf("Content-Type = %q, esperado application/json", got)
+	}
+	if svc.gotID == nil {
+		t.Fatal("service nao foi chamado")
+	}
+	if *svc.gotID != id {
+		t.Errorf("service recebeu %s, esperado %s", *svc.gotID, id)
+	}
+
+	var body ativoResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("resposta nao e JSON: %v", err)
+	}
+	if body.ID != id || body.Name != "Servidor web" || body.Version != 1 {
+		t.Errorf("corpo inesperado: %+v", body)
+	}
+}
+
+func TestBuscaAtivoErros(t *testing.T) {
+	valido := "019a3c1e-0000-7000-8000-000000000001"
+	tests := []struct {
+		name        string
+		id          string
+		err         error
+		wantStatus  int
+		wantDetail  string
+		wantChamado bool
+	}{
+		{"id invalido", "abc", nil, http.StatusBadRequest, "id invalido", false},
+		{"quase uuid", "019a3c1e-0000-7000-8000-00000000000g", nil, http.StatusBadRequest, "id invalido", false},
+		{"nao encontrado", valido, apperror.NotFound("ativo nao encontrado"), http.StatusNotFound, "ativo nao encontrado", true},
+		{"erro interno", valido, errors.New("conexao recusada"), http.StatusInternalServerError, "erro inesperado. tente novamente mais tarde", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeAssetService{err: tt.err}
+			rec := getAtivo(svc, tt.id)
+
+			var p struct {
+				Detail string `json:"detail"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+				t.Fatalf("resposta nao e JSON: %v", err)
+			}
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("status = %d, esperado %d", rec.Code, tt.wantStatus)
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/problem+json" {
+				t.Errorf("Content-Type = %q, esperado application/problem+json", got)
+			}
+			if p.Detail != tt.wantDetail {
+				t.Errorf("detail = %q, esperado %q", p.Detail, tt.wantDetail)
+			}
+			if chamado := svc.gotID != nil; chamado != tt.wantChamado {
+				t.Errorf("service chamado = %v, esperado %v", chamado, tt.wantChamado)
 			}
 		})
 	}
