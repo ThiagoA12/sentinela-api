@@ -21,6 +21,7 @@ type assetStore interface {
 	List(ctx context.Context) ([]domain.Asset, error)
 	Create(ctx context.Context, a domain.Asset) (domain.Asset, error)
 	Get(ctx context.Context, id uuid.UUID) (domain.Asset, error)
+	Update(ctx context.Context, a domain.Asset) (domain.Asset, error)
 }
 
 type AssetService struct {
@@ -52,6 +53,61 @@ func (s *AssetService) Create(ctx context.Context, in CreateAssetInput) (domain.
 
 func (s *AssetService) Get(ctx context.Context, id uuid.UUID) (domain.Asset, error) {
 	return s.store.Get(ctx, id)
+}
+
+type UpdateAssetInput struct {
+	Name        *string
+	Identifier  *string
+	Type        *string
+	Criticality *string
+	Description *string
+	Version     *int32
+}
+
+func (s *AssetService) Update(ctx context.Context, id uuid.UUID, in UpdateAssetInput) (domain.Asset, error) {
+	if in.Version == nil {
+		return domain.Asset{}, apperror.Validation([]apperror.FieldError{{Field: "version", Reason: "obrigatorio"}})
+	}
+
+	current, err := s.store.Get(ctx, id)
+	if err != nil {
+		return domain.Asset{}, err
+	}
+
+	a, fields := newAsset(mergeAsset(current, in))
+	if len(fields) > 0 {
+		return domain.Asset{}, apperror.Validation(fields)
+	}
+	a.ID = id
+	a.Version = *in.Version
+	return s.store.Update(ctx, a)
+}
+
+func mergeAsset(current domain.Asset, in UpdateAssetInput) CreateAssetInput {
+	merged := CreateAssetInput{
+		Name:        current.Name,
+		Identifier:  current.Identifier,
+		Type:        string(current.Type),
+		Criticality: string(current.Criticality),
+		Description: current.Description,
+	}
+
+	if in.Name != nil {
+		merged.Name = *in.Name
+	}
+	if in.Identifier != nil {
+		merged.Identifier = *in.Identifier
+	}
+	if in.Type != nil {
+		merged.Type = *in.Type
+	}
+	if in.Criticality != nil {
+		merged.Criticality = *in.Criticality
+	}
+	if in.Description != nil {
+		merged.Description = in.Description
+	}
+	return merged
 }
 
 func newAsset(in CreateAssetInput) (domain.Asset, []apperror.FieldError) {

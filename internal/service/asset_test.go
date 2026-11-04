@@ -15,9 +15,11 @@ import (
 )
 
 type fakeAssetStore struct {
-	assets  []domain.Asset
-	err     error
-	created *domain.Asset
+	assets    []domain.Asset
+	err       error
+	created   *domain.Asset
+	updated   *domain.Asset
+	updateErr error
 }
 
 func (f *fakeAssetStore) List(ctx context.Context) ([]domain.Asset, error) {
@@ -46,8 +48,18 @@ func (f *fakeAssetStore) Get(ctx context.Context, id uuid.UUID) (domain.Asset, e
 	return domain.Asset{}, apperror.NotFound("ativo nao encontrado")
 }
 
-func ptr(s string) *string {
-	return &s
+func (f *fakeAssetStore) Update(ctx context.Context, a domain.Asset) (domain.Asset, error) {
+	f.updated = &a
+	if f.updateErr != nil {
+		return domain.Asset{}, f.updateErr
+	}
+	out := a
+	out.Version++
+	return out, nil
+}
+
+func ptr[T any](v T) *T {
+	return &v
 }
 
 func TestAssetServiceList(t *testing.T) {
@@ -242,5 +254,92 @@ func TestAssetServiceCreatePropagaErro(t *testing.T) {
 	}
 	if apperror.KindOf(err) != apperror.KindConflict {
 		t.Errorf("KinkOf = %v, esperado KindConflict", apperror.KindOf(err))
+	}
+}
+
+func ativoAtual() domain.Asset {
+	return domain.Asset{
+		ID:          uuid.MustParse("019a3c1e-0000-7000-8000-000000000001"),
+		Name:        "Servidor web",
+		Identifier:  "srv-web-01",
+		Type:        domain.AssetTypeServidor,
+		Criticality: domain.CriticalityAlta,
+		Description: ptr("fica na DMZ"),
+		Version:     3,
+	}
+}
+
+func TestAssetServiceUpdate(t *testing.T) {
+	atual := ativoAtual()
+	store := &fakeAssetStore{assets: []domain.Asset{atual}}
+	svc := service.NewAssetService(store)
+
+	got, err := svc.Update(context.Background(), atual.ID, service.UpdateAssetInput{
+		Criticality: ptr("media"),
+		Description: ptr("   "),
+		Version:     ptr(int32(3)),
+	})
+	if err != nil {
+		t.Fatalf("erro inesperado: %v", err)
+	}
+	if store.updated == nil {
+		t.Fatalf("store.Update nao foi chamado")
+	}
+
+	want := atual
+	want.Criticality = domain.CriticalityMedia
+	want.Description = nil
+
+	if *store.updated != want {
+		t.Errorf("store recebeu %+v, esperado %+v", *store.updated, want)
+	}
+	if got.Version != 4 {
+		t.Errorf("version devolvida = %d, esperado 4", got.Version)
+	}
+}
+
+func TestAssetServiceUpdateErros(t *testing.T) {
+	atual := ativoAtual()
+	conflito := apperror.Conflict("ativo alterado por outra requisicao", nil)
+
+	tests := []struct {
+		name       string
+		id         uuid.UUID
+		in         service.UpdateAssetInput
+		updateErr  error
+		wantKind   apperror.Kind
+		wantField  string
+		wantUpdate bool
+	}{
+		{"sem version", atual.ID, service.UpdateAssetInput{Name: ptr("Novo")}, nil, apperror.KindValidation, "version", false},
+		{"name so com espacos", atual.ID, service.UpdateAssetInput{Name: ptr("   "), Version: ptr(int32(3))}, nil, apperror.KindValidation, "name", false},
+		{"type desconhecido", atual.ID, service.UpdateAssetInput{Type: ptr("impressora"), Version: ptr(int32(3))}, nil, apperror.KindValidation, "type", false},
+		{"ativo inexistente", uuid.MustParse("019a3c1e-0000-7000-8000-000000000099"), service.UpdateAssetInput{Version: ptr(int32(3))}, nil, apperror.KindNotFound, "", false},
+		{"versao desatualizada", atual.ID, service.UpdateAssetInput{Name: ptr("Novo"), Version: ptr(int32(2))}, conflito, apperror.KindConflict, "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeAssetStore{assets: []domain.Asset{atual}, updateErr: tt.updateErr}
+			svc := service.NewAssetService(store)
+
+			_, err := svc.Update(context.Background(), tt.id, tt.in)
+
+			if got := apperror.KindOf(err); got != tt.wantKind {
+				t.Fatalf("Kind = %v, esperado %v (erro: %v)", got, tt.wantKind, err)
+			}
+			if tt.wantField != "" {
+				var appErr *apperror.Error
+				if !errors.As(err, &appErr) {
+					t.Fatalf("erro nao e *apperror.Error: %v", err)
+				}
+				if len(appErr.Fields) != 1 || appErr.Fields[0].Field != tt.wantField {
+					t.Errorf("fields = %+v, esperado so %q", appErr.Fields, tt.wantField)
+				}
+			}
+			if chamado := store.updated != nil; chamado != tt.wantUpdate {
+				t.Errorf("store.Update chamado = %v, esperado %v", chamado, tt.wantUpdate)
+			}
+		})
 	}
 }
