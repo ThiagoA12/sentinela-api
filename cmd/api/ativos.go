@@ -18,6 +18,7 @@ type assetService interface {
 	Create(ctx context.Context, in service.CreateAssetInput) (domain.Asset, error)
 	Get(ctx context.Context, id uuid.UUID) (domain.Asset, error)
 	Update(ctx context.Context, id uuid.UUID, in service.UpdateAssetInput) (domain.Asset, error)
+	Delete(ctx context.Context, id uuid.UUID) error
 }
 
 type criarAtivoRequest struct {
@@ -183,5 +184,25 @@ func handleAtualizaAtivo(svc assetService) http.HandlerFunc {
 		if err := json.NewEncoder(w).Encode(toAtivoResponse(a)); err != nil {
 			log.Printf("escrever resposta: %v", err)
 		}
+	}
+}
+
+func handleExcluiAtivo(svc assetService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := pathID(r)
+		if err != nil {
+			writeProblem(w, r, err)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		if err := svc.Delete(ctx, id); err != nil {
+			writeProblem(w, r, err)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
 	}
 }

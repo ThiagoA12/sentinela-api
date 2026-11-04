@@ -84,6 +84,11 @@ func (f *fakeAssetService) Update(ctx context.Context, id uuid.UUID, in service.
 	}, nil
 }
 
+func (f *fakeAssetService) Delete(ctx context.Context, id uuid.UUID) error {
+	f.gotID = &id
+	return f.err
+}
+
 func ptr[T any](v T) *T {
 	return &v
 }
@@ -438,6 +443,77 @@ func TestAtualizaAtivoErros(t *testing.T) {
 				t.Errorf("detail = %q, esperado %q", p.Detail, tt.wantDetail)
 			}
 			if chamado := svc.updated != nil; chamado != tt.wantChamado {
+				t.Errorf("service chamado = %v, esperado %v", chamado, tt.wantChamado)
+			}
+		})
+	}
+}
+
+func deleteAtivo(svc *fakeAssetService, id string) *httptest.ResponseRecorder {
+	mux := http.NewServeMux()
+	mux.HandleFunc("DELETE /api/v1/ativos/{id}", handleExcluiAtivo(svc))
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/ativos/"+id, nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestExcluiAtivo(t *testing.T) {
+	id := uuid.MustParse("019a3c1e-0000-7000-8000-000000000001")
+	svc := &fakeAssetService{}
+	rec := deleteAtivo(svc, id.String())
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, esperado 204; corpo: %s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("204 nao deveria ter corpo: %q", rec.Body.String())
+	}
+	if svc.gotID == nil {
+		t.Fatal("service nao foi chamado")
+	}
+	if *svc.gotID != id {
+		t.Errorf("service recebeu %s, esperado %s", *svc.gotID, id)
+	}
+}
+
+func TestExcluiAtivoErros(t *testing.T) {
+	valido := "019a3c1e-0000-7000-8000-000000000001"
+	tests := []struct {
+		name        string
+		id          string
+		err         error
+		wantStatus  int
+		wantDetail  string
+		wantChamado bool
+	}{
+		{"id invalido", "abc", nil, http.StatusBadRequest, "id invalido", false},
+		{"nao encontrado", valido, apperror.NotFound("ativo nao encontrado"), http.StatusNotFound, "ativo nao encontrado", true},
+		{"erro interno", valido, errors.New("conexao recusada"), http.StatusInternalServerError, "erro inesperado. tente novamente mais tarde", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeAssetService{err: tt.err}
+			rec := deleteAtivo(svc, tt.id)
+
+			var p struct {
+				Detail string `json:"detail"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+				t.Fatalf("resposta nao e JSON: %v", err)
+			}
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("status = %d, esperado %d", rec.Code, tt.wantStatus)
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/problem+json" {
+				t.Errorf("Content-Type = %q, esperado application/problem+json", got)
+			}
+			if p.Detail != tt.wantDetail {
+				t.Errorf("detail = %q, esperado %q", p.Detail, tt.wantDetail)
+			}
+			if chamado := svc.gotID != nil; chamado != tt.wantChamado {
 				t.Errorf("service chamado = %v, esperado %v", chamado, tt.wantChamado)
 			}
 		})
