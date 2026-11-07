@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/ThiagoA12/sentinela-api/internal/apperror"
 	"github.com/ThiagoA12/sentinela-api/internal/db"
@@ -20,17 +21,45 @@ func NewAssetRepository(conn db.DBTX) *AssetRepository {
 	return &AssetRepository{q: db.New(conn)}
 }
 
-func (r *AssetRepository) List(ctx context.Context) ([]domain.Asset, error) {
-	rows, err := r.q.ListAssets(ctx)
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+func escapeLike(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	e := likeEscaper.Replace(*s)
+	return &e
+}
+
+func (r *AssetRepository) List(ctx context.Context, f domain.AssetFilter) ([]domain.Asset, int64, error) {
+	search := escapeLike(f.Search)
+
+	total, err := r.q.CountAssets(ctx, db.CountAssetsParams{
+		Type:        (*string)(f.Type),
+		Criticality: (*string)(f.Criticality),
+		Q:           search,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("listar ativos: %w", err)
+		return nil, 0, fmt.Errorf("contar ativos: %w", err)
+	}
+
+	rows, err := r.q.ListAssets(ctx, db.ListAssetsParams{
+		Type:        (*string)(f.Type),
+		Criticality: (*string)(f.Criticality),
+		Q:           search,
+		Sort:        f.Sort,
+		PageSize:    int32(f.PageSize),
+		PageOffset:  int32((f.Page - 1) * f.PageSize),
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("listar ativos: %w", err)
 	}
 
 	assets := make([]domain.Asset, 0, len(rows))
 	for _, row := range rows {
 		assets = append(assets, toDomainAsset(row))
 	}
-	return assets, nil
+	return assets, total, nil
 }
 
 func (r *AssetRepository) Create(ctx context.Context, a domain.Asset) (domain.Asset, error) {

@@ -4,8 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"mime"
 	"net/http"
+	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/ThiagoA12/sentinela-api/internal/apperror"
@@ -66,4 +70,39 @@ func pathID(r *http.Request) (uuid.UUID, error) {
 		return uuid.Nil, apperror.Invalid("id invalido")
 	}
 	return id, nil
+}
+func parseQuery(r *http.Request, allowed ...string) (url.Values, error) {
+	values, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		return nil, apperror.Invalid("query string malformada")
+	}
+	for _, name := range slices.Sorted(maps.Keys(values)) {
+		if !slices.Contains(allowed, name) {
+			return nil, apperror.Invalid("parametro desconhecido: " + name)
+		}
+		if len(values[name]) > 1 {
+			return nil, apperror.Invalid("parametro repetido: " + name)
+		}
+	}
+	return values, nil
+}
+
+func queryString(values url.Values, name string) *string {
+	if !values.Has(name) {
+		return nil
+	}
+	v := values.Get(name)
+	return &v
+}
+
+func queryInt(values url.Values, name string) (*int, error) {
+	s := queryString(values, name)
+	if s == nil {
+		return nil, nil
+	}
+	n, err := strconv.Atoi(*s)
+	if err != nil {
+		return nil, apperror.Invalid("parametro " + name + " deve ser um numero inteiro")
+	}
+	return &n, nil
 }

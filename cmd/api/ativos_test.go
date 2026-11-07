@@ -22,13 +22,19 @@ var fixedTime = time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 
 type fakeAssetService struct {
 	err     error
+	page    service.AssetPage
+	listed  *service.ListAssetsInput
 	created *service.CreateAssetInput
 	gotID   *uuid.UUID
 	updated *service.UpdateAssetInput
 }
 
-func (f *fakeAssetService) List(ctx context.Context) ([]domain.Asset, error) {
-	return nil, nil
+func (f *fakeAssetService) List(ctx context.Context, in service.ListAssetsInput) (service.AssetPage, error) {
+	f.listed = &in
+	if f.err != nil {
+		return service.AssetPage{}, f.err
+	}
+	return f.page, nil
 }
 
 func (f *fakeAssetService) Create(ctx context.Context, in service.CreateAssetInput) (domain.Asset, error) {
@@ -517,5 +523,141 @@ func TestExcluiAtivoErros(t *testing.T) {
 				t.Errorf("service chamado = %v, esperado %v", chamado, tt.wantChamado)
 			}
 		})
+	}
+}
+
+func listaAtivos(svc *fakeAssetService, query string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/ativos?"+query, nil)
+	rec := httptest.NewRecorder()
+	handleListaAtivos(svc)(rec, req)
+	return rec
+}
+
+func TestListaAtivos(t *testing.T) {
+	id1 := uuid.MustParse("019a3c1e-0000-7000-8000-000000000001")
+	id2 := uuid.MustParse("019a3c1e-0000-7000-8000-000000000002")
+	svc := &fakeAssetService{page: service.AssetPage{
+		Assets: []domain.Asset{
+			{ID: id1, Name: "db-prod", Type: domain.AssetTypeServidor, Criticality: domain.CriticalityAlta, CreatedAt: fixedTime, UpdatedAt: fixedTime, Version: 1},
+			{ID: id2, Name: "db-hml", Type: domain.AssetTypeServidor, Criticality: domain.CriticalityAlta, CreatedAt: fixedTime, UpdatedAt: fixedTime, Version: 1},
+		},
+		Page:     2,
+		PageSize: 2,
+		Total:    5,
+	}}
+
+	rec := listaAtivos(svc, "type=servidor&criticality=alta&q=db&sort=-name&page=2&page_size=2")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, esperado 200; corpo: %s", rec.Code, rec.Body)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, esperado application/json", ct)
+	}
+
+	want := service.ListAssetsInput{
+		Type:        ptr("servidor"),
+		Criticality: ptr("alta"),
+		Search:      ptr("db"),
+		Sort:        ptr("-name"),
+		Page:        ptr(2),
+		PageSize:    ptr(2),
+	}
+	if svc.listed == nil || !reflect.DeepEqual(*svc.listed, want) {
+		t.Errorf("entrada do service = %+v, esperado %+v", svc.listed, want)
+	}
+
+	var body struct {
+		Data []struct {
+			ID uuid.UUID `json:"id"`
+		} `json:"data"`
+		Page struct {
+			Page     int   `json:"page"`
+			PageSize int   `json:"page_size"`
+			Total    int64 `json:"total"`
+		} `json:"page"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("resposta nao e json: %v", err)
+	}
+	if len(body.Data) != 2 || body.Data[0].ID != id1 || body.Data[1].ID != id2 {
+		t.Errorf("data = %+v, esperado os ids %v e %v nessa ordem", body.Data, id1, id2)
+	}
+	if body.Page.Page != 2 || body.Page.PageSize != 2 || body.Page.Total != 5 {
+		t.Errorf("page = %+v, esperado {2 2 5}", body.Page)
+	}
+}
+
+func TestListaAtivosSemParametros(t *testing.T) {
+	svc := &fakeAssetService{page: service.AssetPage{Page: 1, PageSize: 20, Total: 0}}
+
+	rec := listaAtivos(svc, "")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, esperado 200; corpo: %s", rec.Code, rec.Body)
+	}
+	if svc.listed == nil || !reflect.DeepEqual(*svc.listed, service.ListAssetsInput{}) {
+		t.Errorf("entrada do service = %+v, esperado tudo nil", svc.listed)
+	}
+	if !strings.Contains(rec.Body.String(), `"data":[]`) {
+		t.Errorf("lista vazia deveria sair como [], corpo: %s", rec.Body)
+	}
+}
+
+func TestListaAtivosRequisicaoRecusada(t *testing.T) {
+	tests := []struct {
+		name       string
+		query      string
+		wantDetail string
+	}{
+		{"parametro desconhecido", "pagesize=10", "parametro desconhecido: pagesize"},
+		{"parametro repetido", "page=1&page=2", "parametro repetido: page"},
+		{"page nao numerica", "page=abc", "parametro page deve ser um numero inteiro"},
+		{"page vazia", "page=", "parametro page deve ser um numero inteiro"},
+		{"page_size decimal", "page_size=1.5", "parametro page_size deve ser um numero inteiro"},
+		{"page gigante", "page=99999999999999999999", "parametro page deve ser um numero inteiro"},
+		{"query malformada", "q=%zz", "query string malformada"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeAssetService{}
+
+			rec := listaAtivos(svc, tt.query)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, esperado 400; corpo: %s", rec.Code, rec.Body)
+			}
+			if ct := rec.Header().Get("Content-Type"); ct != "application/problem+json" {
+				t.Errorf("Content-Type = %q, esperado application/problem+json", ct)
+			}
+			var p struct {
+				Detail string `json:"detail"`
+			}
+			if err := json.NewDecoder(rec.Body).Decode(&p); err != nil {
+				t.Fatalf("resposta nao e json: %v", err)
+			}
+			if p.Detail != tt.wantDetail {
+				t.Errorf("detail = %q, esperado %q", p.Detail, tt.wantDetail)
+			}
+			if svc.listed != nil {
+				t.Error("service nao deveria ter sido chamado")
+			}
+		})
+	}
+}
+
+func TestListaAtivosErroDoService(t *testing.T) {
+	svc := &fakeAssetService{err: apperror.Validation([]apperror.FieldError{
+		{Field: "page_size", Reason: "deve estar entre 1 e 100"},
+	})}
+
+	rec := listaAtivos(svc, "page_size=1000")
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, esperado 422; corpo: %s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), `"field":"page_size"`) {
+		t.Errorf("422 deveria apontar o page_size, corpo: %s", rec.Body)
 	}
 }

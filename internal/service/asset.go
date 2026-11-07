@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -17,8 +18,24 @@ const (
 	maxDescriptionLen = 2000
 )
 
+const (
+	defaultPage     = 1
+	defaultPageSize = 20
+	defaultSort     = "created_at"
+	maxPage         = 10000
+	maxPageSize     = 100
+	maxSearchLen    = 100
+)
+
+const (
+	reasonType        = "deve ser: servidor, aplicacao, rede, estacao ou nuvem"
+	reasonCriticality = "deve ser: baixa, media, alta ou critica"
+)
+
+var assetSortFields = []string{"name", "identifier", "type", "criticality", "created_at", "updated_at"}
+
 type assetStore interface {
-	List(ctx context.Context) ([]domain.Asset, error)
+	List(ctx context.Context, f domain.AssetFilter) ([]domain.Asset, int64, error)
 	Create(ctx context.Context, a domain.Asset) (domain.Asset, error)
 	Get(ctx context.Context, id uuid.UUID) (domain.Asset, error)
 	Update(ctx context.Context, a domain.Asset) (domain.Asset, error)
@@ -32,8 +49,90 @@ type AssetService struct {
 func NewAssetService(store assetStore) *AssetService {
 	return &AssetService{store: store}
 }
-func (s *AssetService) List(ctx context.Context) ([]domain.Asset, error) {
-	return s.store.List(ctx)
+
+type ListAssetsInput struct {
+	Type        *string
+	Criticality *string
+	Search      *string
+	Sort        *string
+	Page        *int
+	PageSize    *int
+}
+
+type AssetPage struct {
+	Assets   []domain.Asset
+	Page     int
+	PageSize int
+	Total    int64
+}
+
+func (s *AssetService) List(ctx context.Context, in ListAssetsInput) (AssetPage, error) {
+	f, fields := newAssetFilter(in)
+	if len(fields) > 0 {
+		return AssetPage{}, apperror.Validation(fields)
+	}
+
+	assets, total, err := s.store.List(ctx, f)
+	if err != nil {
+		return AssetPage{}, err
+	}
+	return AssetPage{Assets: assets, Page: f.Page, PageSize: f.PageSize, Total: total}, nil
+}
+
+func newAssetFilter(in ListAssetsInput) (domain.AssetFilter, []apperror.FieldError) {
+	var fields []apperror.FieldError
+	f := domain.AssetFilter{Page: defaultPage, PageSize: defaultPageSize, Sort: defaultSort}
+
+	if in.Page != nil {
+		if *in.Page < 1 || *in.Page > maxPage {
+			fields = append(fields, outOfRange("page", 1, maxPage))
+		}
+		f.Page = *in.Page
+	}
+
+	if in.PageSize != nil {
+		if *in.PageSize < 1 || *in.PageSize > maxPageSize {
+			fields = append(fields, outOfRange("page_size", 1, maxPageSize))
+		}
+		f.PageSize = *in.PageSize
+	}
+
+	if in.Type != nil {
+		t := domain.AssetType(*in.Type)
+		if !t.Valid() {
+			fields = append(fields, apperror.FieldError{Field: "type", Reason: reasonType})
+		}
+		f.Type = &t
+	}
+
+	if in.Criticality != nil {
+		c := domain.Criticality(*in.Criticality)
+		if !c.Valid() {
+			fields = append(fields, apperror.FieldError{Field: "criticality", Reason: reasonCriticality})
+		}
+		f.Criticality = &c
+	}
+
+	if in.Search != nil {
+		switch q := strings.TrimSpace(*in.Search); {
+		case utf8.RuneCountInString(q) > maxSearchLen:
+			fields = append(fields, tooLong("q", maxSearchLen))
+		case q != "":
+			f.Search = &q
+		}
+	}
+
+	if in.Sort != nil {
+		if !slices.Contains(assetSortFields, strings.TrimPrefix(*in.Sort, "-")) {
+			fields = append(fields, apperror.FieldError{
+				Field:  "sort",
+				Reason: "deve ser um de: " + strings.Join(assetSortFields, ", ") + "; prefixo - para decrescente",
+			})
+		}
+		f.Sort = *in.Sort
+	}
+
+	return f, fields
 }
 
 type CreateAssetInput struct {
@@ -128,7 +227,7 @@ func newAsset(in CreateAssetInput) (domain.Asset, []apperror.FieldError) {
 	if !assetType.Valid() {
 		fields = append(fields, apperror.FieldError{
 			Field:  "type",
-			Reason: "deve ser: servidor, aplicacao, rede, estacao ou nuvem",
+			Reason: reasonType,
 		})
 	}
 
@@ -136,7 +235,7 @@ func newAsset(in CreateAssetInput) (domain.Asset, []apperror.FieldError) {
 	if !criticality.Valid() {
 		fields = append(fields, apperror.FieldError{
 			Field:  "criticality",
-			Reason: "deve ser: baixa, media, alta ou critica",
+			Reason: reasonCriticality,
 		})
 	}
 
@@ -173,5 +272,12 @@ func tooLong(field string, limit int) apperror.FieldError {
 	return apperror.FieldError{
 		Field:  field,
 		Reason: "maximo de " + strconv.Itoa(limit) + " caracteres",
+	}
+}
+
+func outOfRange(field string, lo, hi int) apperror.FieldError {
+	return apperror.FieldError{
+		Field:  field,
+		Reason: "deve estar entre " + strconv.Itoa(lo) + " e " + strconv.Itoa(hi),
 	}
 }

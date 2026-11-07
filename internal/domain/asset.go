@@ -53,3 +53,12 @@ type Asset struct {
 	DeletedAt   *time.Time
 	Version     int32
 }
+
+type AssetFilter struct {
+	Type        *AssetType
+	Criticality *Criticality
+	Search      *string
+	Sort        string
+	Page        int
+	PageSize    int
+}

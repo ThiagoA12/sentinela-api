@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -20,10 +21,12 @@ type fakeAssetStore struct {
 	created   *domain.Asset
 	updated   *domain.Asset
 	updateErr error
+	listed    *domain.AssetFilter
 }
 
-func (f *fakeAssetStore) List(ctx context.Context) ([]domain.Asset, error) {
-	return f.assets, f.err
+func (f *fakeAssetStore) List(ctx context.Context, filter domain.AssetFilter) ([]domain.Asset, int64, error) {
+	f.listed = &filter
+	return f.assets, int64(len(f.assets)), f.err
 }
 
 func (f *fakeAssetStore) Create(ctx context.Context, a domain.Asset) (domain.Asset, error) {
@@ -71,19 +74,28 @@ func TestAssetServiceList(t *testing.T) {
 		{ID: uuid.New(), Name: "srv-web-01", Type: domain.AssetTypeServidor},
 		{ID: uuid.New(), Name: "portal", Type: domain.AssetTypeAplicacao},
 	}
-	svc := service.NewAssetService(&fakeAssetStore{assets: want})
+	store := &fakeAssetStore{assets: want}
+	svc := service.NewAssetService(store)
 
-	got, err := svc.List(context.Background())
+	got, err := svc.List(context.Background(), service.ListAssetsInput{})
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
-	if len(got) != len(want) {
-		t.Fatalf("recebeu %d ativos, esperado %d", len(got), len(want))
+	if len(got.Assets) != len(want) {
+		t.Fatalf("recebeu %d ativos, esperado %d", len(got.Assets), len(want))
 	}
 	for i := range want {
-		if got[i].ID != want[i].ID {
-			t.Errorf("ativo %d: ID %v, esperado %v", i, got[i].ID, want[i].ID)
+		if got.Assets[i].ID != want[i].ID {
+			t.Errorf("ativo %d: ID %v, esperado %v", i, got.Assets[i].ID, want[i].ID)
 		}
+	}
+	if got.Page != 1 || got.PageSize != 20 || got.Total != 2 {
+		t.Errorf("pagina = %d, tamanho = %d, total = %d; esperado 1, 20, 2", got.Page, got.PageSize, got.Total)
+	}
+
+	wantFilter := domain.AssetFilter{Sort: "created_at", Page: 1, PageSize: 20}
+	if store.listed == nil || *store.listed != wantFilter {
+		t.Errorf("filtro recebido pelo store = %+v, esperado %+v", store.listed, wantFilter)
 	}
 }
 
@@ -91,7 +103,7 @@ func TestAssetServiceListPropagaErro(t *testing.T) {
 	errBanco := errors.New("banco fora do ar")
 	svc := service.NewAssetService(&fakeAssetStore{err: errBanco})
 
-	_, err := svc.List(context.Background())
+	_, err := svc.List(context.Background(), service.ListAssetsInput{})
 	if !errors.Is(err, errBanco) {
 		t.Fatalf("erro = %v, esperado que contivesse %v", err, errBanco)
 	}
@@ -343,6 +355,120 @@ func TestAssetServiceUpdateErros(t *testing.T) {
 			}
 			if chamado := store.updated != nil; chamado != tt.wantUpdate {
 				t.Errorf("store.Update chamado = %v, esperado %v", chamado, tt.wantUpdate)
+			}
+		})
+	}
+}
+
+func TestAssetServiceListFiltro(t *testing.T) {
+	store := &fakeAssetStore{}
+	svc := service.NewAssetService(store)
+
+	in := service.ListAssetsInput{
+		Type:        ptr("servidor"),
+		Criticality: ptr("alta"),
+		Search:      ptr("  db_  "),
+		Sort:        ptr("-criticality"),
+		Page:        ptr(3),
+		PageSize:    ptr(50),
+	}
+	got, err := svc.List(context.Background(), in)
+	if err != nil {
+		t.Fatalf("erro inesperado: %v", err)
+	}
+	if got.Page != 3 || got.PageSize != 50 {
+		t.Errorf("pagina = %d, tamanho = %d; esperado 3, 50", got.Page, got.PageSize)
+	}
+
+	want := domain.AssetFilter{
+		Type:        ptr(domain.AssetTypeServidor),
+		Criticality: ptr(domain.CriticalityAlta),
+		Search:      ptr("db_"),
+		Sort:        "-criticality",
+		Page:        3,
+		PageSize:    50,
+	}
+	if store.listed == nil || !reflect.DeepEqual(*store.listed, want) {
+		t.Errorf("filtro recebido pelo store = %+v, esperado %+v", store.listed, want)
+	}
+}
+
+func TestAssetServiceListBuscaEmBranco(t *testing.T) {
+	store := &fakeAssetStore{}
+	svc := service.NewAssetService(store)
+
+	if _, err := svc.List(context.Background(), service.ListAssetsInput{Search: ptr("   ")}); err != nil {
+		t.Fatalf("erro inesperado: %v", err)
+	}
+	if store.listed == nil || store.listed.Search != nil {
+		t.Errorf("busca em branco deveria virar nil, veio %+v", store.listed)
+	}
+}
+
+func TestAssetServiceListValidacao(t *testing.T) {
+	tests := []struct {
+		name       string
+		in         service.ListAssetsInput
+		wantFields []string
+	}{
+		{"page 1 (borda)", service.ListAssetsInput{Page: ptr(1)}, nil},
+		{"page 10000 (borda)", service.ListAssetsInput{Page: ptr(10000)}, nil},
+		{"page_size 1 (borda)", service.ListAssetsInput{PageSize: ptr(1)}, nil},
+		{"page_size 100 (borda)", service.ListAssetsInput{PageSize: ptr(100)}, nil},
+		{"q com 100 caracteres", service.ListAssetsInput{Search: ptr(strings.Repeat("a", 100))}, nil},
+		{"sort crescente", service.ListAssetsInput{Sort: ptr("name")}, nil},
+		{"sort decrescente", service.ListAssetsInput{Sort: ptr("-updated_at")}, nil},
+		{"page 0", service.ListAssetsInput{Page: ptr(0)}, []string{"page"}},
+		{"page negativa", service.ListAssetsInput{Page: ptr(-1)}, []string{"page"}},
+		{"page 10001", service.ListAssetsInput{Page: ptr(10001)}, []string{"page"}},
+		{"page_size 0", service.ListAssetsInput{PageSize: ptr(0)}, []string{"page_size"}},
+		{"page_size 101", service.ListAssetsInput{PageSize: ptr(101)}, []string{"page_size"}},
+		{"page_size 1000 (RS-24)", service.ListAssetsInput{PageSize: ptr(1000)}, []string{"page_size"}},
+		{"type fora da lista", service.ListAssetsInput{Type: ptr("impressora")}, []string{"type"}},
+		{"type vazio", service.ListAssetsInput{Type: ptr("")}, []string{"type"}},
+		{"criticality fora da lista", service.ListAssetsInput{Criticality: ptr("urgente")}, []string{"criticality"}},
+		{"q com 101 caracteres", service.ListAssetsInput{Search: ptr(strings.Repeat("a", 101))}, []string{"q"}},
+		{"sort fora da allowlist", service.ListAssetsInput{Sort: ptr("senha")}, []string{"sort"}},
+		{"sort com sql", service.ListAssetsInput{Sort: ptr("name; drop table assets")}, []string{"sort"}},
+		{"sort so com hifen", service.ListAssetsInput{Sort: ptr("-")}, []string{"sort"}},
+		{"sort com dois hifens", service.ListAssetsInput{Sort: ptr("--name")}, []string{"sort"}},
+		{"varios de uma vez", service.ListAssetsInput{
+			Page:     ptr(0),
+			PageSize: ptr(1000),
+			Sort:     ptr("senha"),
+		}, []string{"page", "page_size", "sort"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeAssetStore{}
+			svc := service.NewAssetService(store)
+
+			_, err := svc.List(context.Background(), tt.in)
+
+			if tt.wantFields == nil {
+				if err != nil {
+					t.Fatalf("erro inesperado: %v", err)
+				}
+				if store.listed == nil {
+					t.Fatal("store deveria ter sido chamado")
+				}
+				return
+			}
+
+			var appErr *apperror.Error
+			if !errors.As(err, &appErr) || appErr.Kind != apperror.KindValidation {
+				t.Fatalf("erro = %v, esperado erro de validacao", err)
+			}
+			var got []string
+			for _, f := range appErr.Fields {
+				got = append(got, f.Field)
+			}
+			if !slices.Equal(got, tt.wantFields) {
+				t.Errorf("campos = %v, esperado %v", got, tt.wantFields)
+			}
+			if store.listed != nil {
+				t.Error("store nao deveria ter sido chamado")
 			}
 		})
 	}

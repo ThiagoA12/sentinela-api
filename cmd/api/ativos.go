@@ -14,7 +14,7 @@ import (
 )
 
 type assetService interface {
-	List(ctx context.Context) ([]domain.Asset, error)
+	List(ctx context.Context, in service.ListAssetsInput) (service.AssetPage, error)
 	Create(ctx context.Context, in service.CreateAssetInput) (domain.Asset, error)
 	Get(ctx context.Context, id uuid.UUID) (domain.Asset, error)
 	Update(ctx context.Context, id uuid.UUID, in service.UpdateAssetInput) (domain.Asset, error)
@@ -50,8 +50,15 @@ type ativoResponse struct {
 	Version     int32     `json:"version"`
 }
 
+type paginaResponse struct {
+	Page     int   `json:"page"`
+	PageSize int   `json:"page_size"`
+	Total    int64 `json:"total"`
+}
+
 type listaAtivosResponse struct {
 	Data []ativoResponse `json:"data"`
+	Page paginaResponse  `json:"page"`
 }
 
 func toAtivoResponse(a domain.Asset) ativoResponse {
@@ -68,19 +75,53 @@ func toAtivoResponse(a domain.Asset) ativoResponse {
 	}
 }
 
+func listaAtivosInput(r *http.Request) (service.ListAssetsInput, error) {
+	q, err := parseQuery(r, "page", "page_size", "sort", "type", "criticality", "q")
+	if err != nil {
+		return service.ListAssetsInput{}, err
+	}
+
+	page, err := queryInt(q, "page")
+	if err != nil {
+		return service.ListAssetsInput{}, err
+	}
+	pageSize, err := queryInt(q, "page_size")
+	if err != nil {
+		return service.ListAssetsInput{}, err
+	}
+
+	return service.ListAssetsInput{
+		Type:        queryString(q, "type"),
+		Criticality: queryString(q, "criticality"),
+		Search:      queryString(q, "q"),
+		Sort:        queryString(q, "sort"),
+		Page:        page,
+		PageSize:    pageSize,
+	}, nil
+}
+
 func handleListaAtivos(svc assetService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-		defer cancel()
-
-		assets, err := svc.List(ctx)
+		in, err := listaAtivosInput(r)
 		if err != nil {
 			writeProblem(w, r, err)
 			return
 		}
 
-		resp := listaAtivosResponse{Data: make([]ativoResponse, 0, len(assets))}
-		for _, a := range assets {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		p, err := svc.List(ctx, in)
+		if err != nil {
+			writeProblem(w, r, err)
+			return
+		}
+
+		resp := listaAtivosResponse{
+			Data: make([]ativoResponse, 0, len(p.Assets)),
+			Page: paginaResponse{Page: p.Page, PageSize: p.PageSize, Total: p.Total},
+		}
+		for _, a := range p.Assets {
 			resp.Data = append(resp.Data, toAtivoResponse(a))
 		}
 

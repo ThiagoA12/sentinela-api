@@ -11,6 +11,30 @@ import (
 	"github.com/google/uuid"
 )
 
+const countAssets = `-- name: CountAssets :one
+SELECT count(*)
+FROM assets
+WHERE deleted_at IS NULL
+    AND ($1::text IS NULL OR type = $1)
+    AND ($2::text IS NULL OR criticality = $2)
+    AND ($3::text IS NULL
+        OR name ILIKE '%' || $3 || '%' ESCAPE '\'
+        OR identifier ILIKE '%' || $3 || '%' ESCAPE '\')
+`
+
+type CountAssetsParams struct {
+	Type        *string
+	Criticality *string
+	Q           *string
+}
+
+func (q *Queries) CountAssets(ctx context.Context, arg CountAssetsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAssets, arg.Type, arg.Criticality, arg.Q)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createAsset = `-- name: CreateAsset :one
 INSERT INTO assets (name, identifier, type, criticality, description)
 VALUES ($1, $2, $3, $4, $5)
@@ -96,12 +120,51 @@ SELECT id, name, identifier, type, criticality, created_at,
     description, updated_at, deleted_at, version
 FROM assets
 WHERE deleted_at IS NULL
-ORDER BY id
-LIMIT 100
+    AND ($1::text IS NULL OR type = $1)
+    AND ($2::text IS NULL OR criticality = $2)
+    AND ($3::text IS NULL
+        OR name ILIKE '%' || $3 || '%' ESCAPE '\'
+        OR identifier ILIKE '%' || $3 || '%' ESCAPE '\')
+ORDER BY
+    CASE WHEN $4::text = 'name' THEN name END,
+    CASE WHEN $4::text = '-name' THEN name END DESC,
+    CASE WHEN $4::text = 'identifier' THEN identifier END,
+    CASE WHEN $4::text = '-identifier' THEN identifier END DESC,
+    CASE WHEN $4::text = 'type' THEN type END,
+    CASE WHEN $4::text = '-type' THEN type END DESC,
+    CASE WHEN $4::text = 'criticality' THEN
+        CASE criticality WHEN 'baixa' THEN 1 WHEN 'media' THEN 2 WHEN 'alta' THEN 3 WHEN 'critica' THEN 4 END
+    END,
+    CASE WHEN $4::text ='-criticality' THEN
+        CASE criticality WHEN 'baixa' THEN 1 WHEN 'media' THEN 2 WHEN 'alta' THEN 3 WHEN 'critica' THEN 4 END
+    END DESC,
+    CASE WHEN $4::text = 'created_at' THEN created_at END,
+    CASE WHEN $4::text = '-created_at' THEN created_at END DESC,
+    CASE WHEN $4::text = 'updated_at' THEN updated_at END,
+    CASE WHEN $4::text = '-updated_at' THEN updated_at END DESC,
+    id
+LIMIT $6::int
+OFFSET $5::int
 `
 
-func (q *Queries) ListAssets(ctx context.Context) ([]Asset, error) {
-	rows, err := q.db.Query(ctx, listAssets)
+type ListAssetsParams struct {
+	Type        *string
+	Criticality *string
+	Q           *string
+	Sort        string
+	PageOffset  int32
+	PageSize    int32
+}
+
+func (q *Queries) ListAssets(ctx context.Context, arg ListAssetsParams) ([]Asset, error) {
+	rows, err := q.db.Query(ctx, listAssets,
+		arg.Type,
+		arg.Criticality,
+		arg.Q,
+		arg.Sort,
+		arg.PageOffset,
+		arg.PageSize,
+	)
 	if err != nil {
 		return nil, err
 	}
