@@ -12,6 +12,7 @@ const (
 	KindValidation
 	KindTooLarge
 	KindUnsupportedMedia
+	KindMethodNotAllowed
 )
 
 type FieldError struct {
@@ -59,6 +60,10 @@ func TooLarge(detail string) *Error {
 
 func UnsupportedMedia(detail string) *Error {
 	return &Error{Kind: KindUnsupportedMedia, Detail: detail}
+}
+
+func MethodNotAllowed(detail string) *Error {
+	return &Error{Kind: KindMethodNotAllowed, Detail: detail}
 }
 
 func KindOf(err error) Kind {

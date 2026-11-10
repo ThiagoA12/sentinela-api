@@ -24,6 +24,7 @@ func TestKindOf(t *testing.T) {
 		{"sem Kind", &apperror.Error{Detail: "esquecido"}, apperror.KindInternal},
 		{"corpo grande", apperror.TooLarge("corpo maior que 1 MB"), apperror.KindTooLarge},
 		{"midia nao suportada", apperror.UnsupportedMedia("Content-Type deve ser application/json"), apperror.KindUnsupportedMedia},
+		{"metodo nao permitido", apperror.MethodNotAllowed("metodo nao permitido nesta rota"), apperror.KindMethodNotAllowed},
 	}
 
 	for _, tt := range tests {

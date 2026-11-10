@@ -10,12 +10,13 @@ import (
 )
 
 type problem struct {
-	Type     string         `json:"type"`
-	Title    string         `json:"title"`
-	Status   int            `json:"status"`
-	Detail   string         `json:"detail,omitempty"`
-	Instance string         `json:"instance,omitempty"`
-	Errors   []fieldProblem `json:"errors,omitempty"`
+	Type      string         `json:"type"`
+	Title     string         `json:"title"`
+	Status    int            `json:"status"`
+	Detail    string         `json:"detail,omitempty"`
+	Instance  string         `json:"instance,omitempty"`
+	Errors    []fieldProblem `json:"errors,omitempty"`
+	RequestID string         `json:"request_id,omitempty"`
 }
 
 type fieldProblem struct {
@@ -37,13 +38,16 @@ func statusOf(k apperror.Kind) int {
 		return http.StatusRequestEntityTooLarge
 	case apperror.KindUnsupportedMedia:
 		return http.StatusUnsupportedMediaType
+	case apperror.KindMethodNotAllowed:
+		return http.StatusMethodNotAllowed
 	default:
 		return http.StatusInternalServerError
 	}
 }
 
 func writeProblem(w http.ResponseWriter, r *http.Request, err error) {
-	p := problem{Type: "about:blank", Instance: r.URL.Path}
+	id := requestIDFrom(r.Context())
+	p := problem{Type: "about:blank", Instance: r.URL.Path, RequestID: id}
 
 	var appErr *apperror.Error
 	if errors.As(err, &appErr) && appErr.Kind != apperror.KindInternal {
@@ -53,7 +57,7 @@ func writeProblem(w http.ResponseWriter, r *http.Request, err error) {
 			p.Errors = append(p.Errors, fieldProblem{Field: f.Field, Reason: f.Reason})
 		}
 	} else {
-		log.Printf("erro interno em %s %s: %v", r.Method, r.URL.Path, err)
+		log.Printf("erro interno em %s %s (request_id %s): %v", r.Method, r.URL.Path, id, err)
 		p.Status = http.StatusInternalServerError
 		p.Detail = "erro inesperado. tente novamente mais tarde"
 	}
