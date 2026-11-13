@@ -1,0 +1,668 @@
+openapi: 3.1.0
+
+info:
+  title: Sentinela API
+  version: 0.1.0
+  summary: CRUD de ativos de TI sobre PostgreSQL
+
+security: []
+
+servers:
+  - url: http://127.0.0.1:8080
+    description: ambiente local
+
+tags:
+  - name: operacao
+    description: Estado do processo e do banco
+  - name: ativos
+    description: ativos de TI
+
+paths:
+  /healthz:
+    get:
+      tags: [operacao]
+      operationId: healthz
+      summary: processo no ar
+      description: nao consulta banco
+      responses:
+        "200":
+          description: processo no ar
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+              example:
+                status: ok
+    head:
+      tags: [operacao]
+      operationId: healthzHead
+      summary: igual ao GET, sem corpo
+      responses:
+        "200":
+          $ref: "#/components/responses/SemCorpo"
+
+  /readyz:
+    get:
+      tags: [operacao]
+      operationId: readyz
+      summary: pronto para atender
+      description: faz um ping no banco com prazo de 2 s.
+      responses:
+        "200":
+          description: banco respondendo
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+              example:
+                status: ok
+        "503":
+          description: banco indisponivel. motivo vai para o log.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+              example:
+                status: unavailable
+    head:
+      tags: [operacao]
+      operationId: readyzHead
+      summary: igual ao GET, sem corpo
+      responses:
+        "200":
+          $ref: "#/components/responses/SemCorpo"
+        "503":
+          $ref: "#/components/responses/SemCorpo"
+
+  /api/v1/ativos:
+    get:
+      tags: [ativos]
+      operationId: listaAtivos
+      summary: lista ativos
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Type"
+        - $ref: "#/components/parameters/Criticality"
+        - $ref: "#/components/parameters/Q"
+      responses:
+        "200":
+          description: uma pagina de ativos
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListaAtivos"
+        "400":
+          $ref: "#/components/responses/Invalid"
+          description: parametro desconhecido, repetido, numero invalido ou query string malformada
+        "422":
+          $ref: "#/components/responses/Validation"
+          description: valor fora da faixa ou fora da lista permitida
+        "500":
+          $ref: "#/components/responses/Internal"
+
+    head:
+      tags: [ativos]
+      operationId: listaAtivosHead
+      summary: igual ao GET, sem corpo
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Type"
+        - $ref: "#/components/parameters/Criticality"
+        - $ref: "#/components/parameters/Q"
+      responses:
+        "200":
+          $ref: "#/components/responses/SemCorpo"
+        "400":
+          $ref: "#/components/responses/SemCorpo"
+        "422":
+          $ref: "#/components/responses/SemCorpo"
+        "500":
+          $ref: "#/components/responses/SemCorpo"
+    post:
+      tags: [ativos]
+      operationId: criaAtivo
+      summary: cria um ativo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CriarAtivo"
+      responses:
+        "201":
+          description: ativo criado
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Location:
+              description: caminho do ativo criado
+              schema:
+                type: string
+                examples:
+                  - /api/v1/ativos/01a1cab1-9c80-7a10-9b2e-4f6a8c1d2e3f
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ativo"
+        "400":
+          $ref: "#/components/responses/Invalid"
+          description: JSON malformado, corpo vazio, campo desconhecido ou com tipo errado
+        "409":
+          $ref: "#/components/responses/Conflict"
+          description: ja existe um ativo nao excluido com este identifier
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "422":
+          $ref: "#/components/responses/Validation"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /api/v1/ativos/{id}:
+    parameters:
+      - $ref: "#/components/parameters/AtivoID"
+
+    get:
+      tags: [ativos]
+      operationId: buscaAtivo
+      summary: busca um ativo
+      responses:
+        "200":
+          description: o ativo
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ativo"
+        "400":
+          $ref: "#/components/responses/Invalid"
+          description: id nao e um UUID
+        "404":
+          $ref: "#/components/responses/NotFound"
+          description: ativo inexistente ou excluido
+        "500":
+          $ref: "#/components/responses/Internal"
+
+    head:
+      tags: [ativos]
+      operationId: buscaAtivoHead
+      summary: igual ao GET, sem corpo
+      responses:
+        "200":
+          $ref: "#/components/responses/SemCorpo"
+        "400":
+          $ref: "#/components/responses/SemCorpo"
+        "404":
+          $ref: "#/components/responses/SemCorpo"
+        "500":
+          $ref: "#/components/responses/SemCorpo"
+
+    patch:
+      tags: [ativos]
+      operationId: atualizaAtivo
+      summary: altera um ativo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AtualizarAtivo"
+      responses:
+        "200":
+          description: ativo alterado
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ativo"
+        "400":
+          $ref: "#/components/responses/Invalid"
+          description: id nao e um UUID, JSON malformado ou campo desconhecido
+        "404":
+          $ref: "#/components/responses/NotFound"
+          description: ativo inexistente ou excluido
+        "409":
+          $ref: "#/components/responses/Conflict"
+          description: version desatualizada ou identifier em uso por outro ativo
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "422":
+          $ref: "#/components/responses/Validation"
+          description: version ausente ou valores fora das regras
+        "500":
+          $ref: "#/components/responses/Internal"
+
+    delete:
+      tags: [ativos]
+      operationId: excluiAtivo
+      summary: exclui um ativo
+      responses:
+        "204":
+          description: ativo excluido
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/Invalid"
+          description: id nao e um UUID
+        "404":
+          $ref: "#/components/responses/NotFound"
+          description: ativo inexistente ou ja excluido
+        "500":
+          $ref: "#/components/responses/Internal"
+
+components:
+  headers:
+    RequestId:
+      description: id da requisicao, gerado pelo servidor
+      schema:
+        type: string
+        format: uuid
+
+  parameters:
+    AtivoID:
+      name: id
+      in: path
+      required: true
+      description: UUID do ativo
+      schema:
+        type: string
+        format: uuid
+
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 10000
+        default: 1
+
+    PageSize:
+      name: page_size
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+    Sort:
+      name: sort
+      in: query
+      schema:
+        type: string
+        default: created_at
+        enum:
+          - name
+          - -name
+          - identifier
+          - -identifier
+          - type
+          - -type
+          - criticality
+          - -criticality
+          - created_at
+          - -created_at
+          - updated_at
+          - -updated_at
+
+    Type:
+      name: type
+      in: query
+      schema:
+        $ref: "#/components/schemas/TipoAtivo"
+
+    Criticality:
+      name: criticality
+      in: query
+      schema:
+        $ref: "#/components/schemas/Criticidade"
+
+    Q:
+      name: q
+      in: query
+      description: |
+        Busca parcial em name e identifier, sem diferenciar maiusculas.
+        % e _ valem como texto. Em branco equivale a nao filtrar.
+      schema:
+        type: string
+        maxLength: 100
+
+  schemas:
+    Status:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, unavailable]
+
+    TipoAtivo:
+      type: string
+      enum: [servidor, aplicacao, rede, estacao, nuvem]
+
+    Criticidade:
+      type: string
+      description: em ordem de gravidade
+      enum: [baixa, media, alta, critica]
+
+    Ativo:
+      type: object
+      required:
+        - id
+        - name
+        - identifier
+        - type
+        - criticality
+        - description
+        - created_at
+        - updated_at
+        - version
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: UUIDv7 gerado pelo banco
+        name:
+          type: string
+        identifier:
+          type: string
+        type:
+          $ref: "#/components/schemas/TipoAtivo"
+        criticality:
+          $ref: "#/components/schemas/Criticidade"
+        description:
+          type: [string, "null"]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int32
+          minimum: 1
+      examples:
+        - id: 01a1cab1-9c80-7a10-9b2e-4f6a8c1d2e3f
+          name: Servidor de arquivos
+          identifier: srv-arquivos-01
+          type: servidor
+          criticality: alta
+          description: null
+          created_at: "2026-11-11T13:00:00Z"
+          updated_at: "2026-11-11T13:00:00Z"
+          version: 1
+
+    CriarAtivo:
+      type: object
+      additionalProperties: false
+      required: [name, identifier, type, criticality]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        identifier:
+          type: string
+          minLength: 1
+          maxLength: 255
+        type:
+          $ref: "#/components/schemas/TipoAtivo"
+        criticality:
+          $ref: "#/components/schemas/Criticidade"
+        description:
+          type: [string, "null"]
+          maxLength: 2000
+          description: vazio, null ou ausente fica sem descricao
+      examples:
+        - name: Servidor de arquivos
+          identifier: srv-arquivos-01
+          type: servidor
+          criticality: alta
+
+    AtualizarAtivo:
+      type: object
+      additionalProperties: false
+      required: [version]
+      description: mesmas regras de CriarAtivo para os campos enviados.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        identifier:
+          type: string
+          minLength: 1
+          maxLength: 255
+        type:
+          $ref: "#/components/schemas/TipoAtivo"
+        criticality:
+          $ref: "#/components/schemas/Criticidade"
+        description:
+          type: [string, "null"]
+          maxLength: 2000
+          description: ausente ou null mantem o valor atual; vazio remove a descricao
+        version:
+          type: integer
+          format: int32
+          description: valor atual de version do ativo
+      examples:
+        - criticality: critica
+          version: 1
+
+    ListaAtivos:
+      type: object
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Ativo"
+        page:
+          $ref: "#/components/schemas/Pagina"
+
+    Pagina:
+      type: object
+      required: [page, page_size, total]
+      properties:
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+          format: int64
+          description: total de ativos que atendem aos filtros
+
+    Problema:
+      type: object
+      description: RFC 9457
+      required: [type, title, status, detail, instance, request_id]
+      properties:
+        type:
+          type: string
+          const: about:blank
+        title:
+          type: string
+          description: texto padrao do status HTTP
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+          description: caminho da requisicao
+        errors:
+          type: array
+          description: so no 422, um item por campo invalido
+          items:
+            $ref: "#/components/schemas/ProblemaCampo"
+        request_id:
+          type: string
+          format: uuid
+
+    ProblemaCampo:
+      type: object
+      required: [field, reason]
+      properties:
+        field:
+          type: string
+          description: nome do campo no JSON ou do parametro na URL
+        reason:
+          type: string
+
+  responses:
+    Invalid:
+      description: requisicao mal formada
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problema"
+          example:
+            type: about:blank
+            title: Bad Request
+            status: 400
+            detail: id invalido
+            instance: /api/v1/ativos/123
+            request_id: 4b0f6a3e-2d1c-4e8f-9a7b-1c2d3e4f5a6b
+
+    NotFound:
+      description: nao encontrado
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problema"
+          example:
+            type: about:blank
+            title: Not Found
+            status: 404
+            detail: ativo nao encontrado
+            instance: /api/v1/ativos/01a1cab1-9c80-7a10-9b2e-4f6a8c1d2e3f
+            request_id: 4b0f6a3e-2d1c-4e8f-9a7b-1c2d3e4f5a6b
+
+    Conflict:
+      description: conflito com o estado atual
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problema"
+          example:
+            type: about:blank
+            title: Conflict
+            status: 409
+            detail: ja existe um ativo com este identificador
+            instance: /api/v1/ativos
+            request_id: 4b0f6a3e-2d1c-4e8f-9a7b-1c2d3e4f5a6b
+
+    TooLarge:
+      description: corpo maior que 1 MB
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problema"
+          example:
+            type: about:blank
+            title: Request Entity Too Large
+            status: 413
+            detail: corpo maior que 1MB
+            instance: /api/v1/ativos
+            request_id: 4b0f6a3e-2d1c-4e8f-9a7b-1c2d3e4f5a6b
+
+    UnsupportedMedia:
+      description: Content-Type diferente de application/json
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problema"
+          example:
+            type: about:blank
+            title: Unsupported Media Type
+            status: 415
+            detail: Content-Type deve ser application/json
+            instance: /api/v1/ativos
+            request_id: 4b0f6a3e-2d1c-4e8f-9a7b-1c2d3e4f5a6b
+
+    Validation:
+      description: valores fora das regras; um item em errors por campo
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problema"
+          example:
+            type: about:blank
+            title: Unprocessable Entity
+            status: 422
+            detail: campo(s) invalidos
+            instance: /api/v1/ativos
+            errors:
+              - field: name
+                reason: obrigatorio
+              - field: type
+                reason: "deve ser: servidor, aplicacao, rede, estacao ou nuvem"
+            request_id: 4b0f6a3e-2d1c-4e8f-9a7b-1c2d3e4f5a6b
+
+    Internal:
+      description: erro inesperado; os detalhes vao so para o log
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problema"
+          example:
+            type: about:blank
+            title: Internal Server Error
+            status: 500
+            detail: erro inesperado. tente novamente mais tarde
+            instance: /api/v1/ativos/01a1cab1-9c80-7a10-9b2e-4f6a8c1d2e3f
+            request_id: 4b0f6a3e-2d1c-4e8f-9a7b-1c2d3e4f5a6b
+
+    SemCorpo:
+      description: mesmo status e cabecalhos do GET, sem corpo
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"

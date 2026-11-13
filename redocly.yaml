@@ -1,0 +1,5 @@
+extends:
+  - recommended
+rules:
+  no-invalid-media-type-examples: error
+  no-invalid-schema-examples: error
