@@ -66,6 +66,6 @@ func writeProblem(w http.ResponseWriter, r *http.Request, err error) {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(p.Status)
 	if err := json.NewEncoder(w).Encode(p); err != nil {
-		log.Printf("escrever ersposta de erro: %v", err)
+		log.Printf("escrever resposta de erro: %v", err)
 	}
 }

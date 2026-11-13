@@ -18,7 +18,7 @@ func TestKindOf(t *testing.T) {
 	}{
 		{"erro comum", errors.New("falhou"), apperror.KindInternal},
 		{"nil", nil, apperror.KindInternal},
-		{"not founnd", apperror.NotFound("ativo nao encontrado"), apperror.KindNotFound},
+		{"not found", apperror.NotFound("ativo nao encontrado"), apperror.KindNotFound},
 		{"conflito embrulhado", fmt.Errorf("criar ativo: %w", apperror.Conflict("duplicado", causa)), apperror.KindConflict},
 		{"embrulhado duas vezes", fmt.Errorf("a: %w", fmt.Errorf("b: %w", apperror.Invalid("x"))), apperror.KindInvalid},
 		{"sem Kind", &apperror.Error{Detail: "esquecido"}, apperror.KindInternal},

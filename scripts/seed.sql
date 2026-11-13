@@ -1,5 +1,3 @@
--- Dados de exemplo para desenvolvimento. Nunca rodar em produção.
--- Pode ser executado várias vezes: só insere o que ainda não existe.
 INSERT INTO assets (name, identifier, type, criticality)
 SELECT v.name, v.identifier, v.type, v.criticality
 FROM (VALUES

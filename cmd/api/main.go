@@ -117,7 +117,7 @@ func handleReadyz(pool *pgxpool.Pool) http.HandlerFunc {
 func writeJSON(w http.ResponseWriter, status int, body string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	if _, err := w.Write([]byte(body)); err != nil {
+	if _, err := w.Write([]byte(body + "\n")); err != nil {
 		log.Printf("escrever resposta: %v", err)
 	}
 }
