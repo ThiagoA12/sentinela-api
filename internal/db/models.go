@@ -22,3 +22,28 @@ type Asset struct {
 	DeletedAt   *time.Time
 	Version     int32
 }
+
+type AuditLog struct {
+	ID         int64
+	OccurredAt time.Time
+	ActorID    *uuid.UUID
+	Action     string
+	Entity     string
+	EntityID   *uuid.UUID
+	RequestID  string
+	Changes    []byte
+}
+
+type User struct {
+	ID           uuid.UUID
+	Name         string
+	Email        string
+	PasswordHash string
+	Role         string
+	Active       bool
+	FailedLogins int16
+	LockedUntil  *time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	Version      int32
+}
