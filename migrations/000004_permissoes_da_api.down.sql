@@ -1,0 +1,1 @@
+REVOKE ALL ON assets, users, audit_log FROM app_rw;

@@ -1,0 +1,3 @@
+GRANT SELECT, INSERT, UPDATE ON assets, users TO app_rw;
+GRANT SELECT, INSERT ON audit_log TO app_rw;
+REVOKE UPDATE, DELETE, TRUNCATE ON audit_log FROM app_rw;

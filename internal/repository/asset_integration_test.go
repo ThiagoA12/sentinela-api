@@ -45,8 +45,14 @@ func runIntegration(m *testing.M) int {
 		return 1
 	}
 
+	scripts := append([]string{filepath.Join("..", "..", "scripts", "db-init", "01-papeis.sh")}, migrations...)
+
 	ctr, err := postgres.Run(ctx, postgresImage,
-		postgres.WithOrderedInitScripts(migrations...),
+		testcontainers.WithEnv(map[string]string{
+			"APP_MIGRATOR_PASSWORD": testMigratorPassword,
+			"APP_RW_PASSWORD":       testRWPassword,
+		}),
+		postgres.WithOrderedInitScripts(scripts...),
 		postgres.BasicWaitStrategies(),
 	)
 	defer func() {
