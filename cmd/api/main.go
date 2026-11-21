@@ -49,6 +49,19 @@ func run() error {
 	}
 	log.Println("conectado ao banco")
 
+	userRepo := repository.NewUserRepository(pool)
+	UserSvc := service.NewUserService(userRepo)
+
+	adminCtx, cancelAdmin := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelAdmin()
+	created, err := UserSvc.EnsureInitialAdmin(adminCtx, cfg.AdminEmail, cfg.AdminPassword)
+	if err != nil {
+		return fmt.Errorf("administrador inicial: %w", err)
+	}
+	if created {
+		slog.Info("administrador inicial criado", "email", cfg.AdminEmail)
+	}
+
 	assetRepo := repository.NewAssetRepository(pool)
 	assetSvc := service.NewAssetService(assetRepo)
 

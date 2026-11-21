@@ -17,3 +17,11 @@ func identifierInUse(err error) error {
 	}
 	return err
 }
+
+func emailInUse(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation && pgErr.ConstraintName == "users_email_lower_key" {
+		return apperror.Conflict("ja existe um usuario com esse email", err)
+	}
+	return err
+}

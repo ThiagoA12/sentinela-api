@@ -6,8 +6,10 @@ import (
 )
 
 type Config struct {
-	HTTPAddr    string
-	DatabaseURL string
+	HTTPAddr      string
+	DatabaseURL   string
+	AdminEmail    string
+	AdminPassword string
 }
 
 func getEnv(key, fallback string) string {
@@ -19,8 +21,10 @@ func getEnv(key, fallback string) string {
 
 func Load() (Config, error) {
 	cfg := Config{
-		HTTPAddr:    getEnv("HTTP_ADDR", "127.0.0.1:8080"),
-		DatabaseURL: os.Getenv("DATABASE_URL"),
+		HTTPAddr:      getEnv("HTTP_ADDR", "127.0.0.1:8080"),
+		DatabaseURL:   os.Getenv("DATABASE_URL"),
+		AdminEmail:    os.Getenv("ADMIN_EMAIL"),
+		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
 	}
 
 	if cfg.DatabaseURL == "" {
