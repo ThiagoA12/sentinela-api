@@ -10,6 +10,7 @@ type Config struct {
 	DatabaseURL   string
 	AdminEmail    string
 	AdminPassword string
+	JWTPrivateKey string
 }
 
 func getEnv(key, fallback string) string {
@@ -25,6 +26,7 @@ func Load() (Config, error) {
 		DatabaseURL:   os.Getenv("DATABASE_URL"),
 		AdminEmail:    os.Getenv("ADMIN_EMAIL"),
 		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
+		JWTPrivateKey: os.Getenv("JWT_PRIVATE_KEY"),
 	}
 
 	if cfg.DatabaseURL == "" {

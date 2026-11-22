@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ThiagoA12/sentinela-api/internal/auth"
 	"github.com/ThiagoA12/sentinela-api/internal/config"
 	"github.com/ThiagoA12/sentinela-api/internal/repository"
 	"github.com/ThiagoA12/sentinela-api/internal/service"
@@ -33,6 +34,10 @@ func run() error {
 		return err
 	}
 
+	if _, err := auth.NewTokenManager(cfg.JWTPrivateKey); err != nil {
+		return fmt.Errorf("JWT_PRIVATE_KEY: %w", err)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -50,11 +55,11 @@ func run() error {
 	log.Println("conectado ao banco")
 
 	userRepo := repository.NewUserRepository(pool)
-	UserSvc := service.NewUserService(userRepo)
+	userSvc := service.NewUserService(userRepo)
 
 	adminCtx, cancelAdmin := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelAdmin()
-	created, err := UserSvc.EnsureInitialAdmin(adminCtx, cfg.AdminEmail, cfg.AdminPassword)
+	created, err := userSvc.EnsureInitialAdmin(adminCtx, cfg.AdminEmail, cfg.AdminPassword)
 	if err != nil {
 		return fmt.Errorf("administrador inicial: %w", err)
 	}
