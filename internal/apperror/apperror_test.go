@@ -25,6 +25,7 @@ func TestKindOf(t *testing.T) {
 		{"corpo grande", apperror.TooLarge("corpo maior que 1 MB"), apperror.KindTooLarge},
 		{"midia nao suportada", apperror.UnsupportedMedia("Content-Type deve ser application/json"), apperror.KindUnsupportedMedia},
 		{"metodo nao permitido", apperror.MethodNotAllowed("metodo nao permitido nesta rota"), apperror.KindMethodNotAllowed},
+		{"nao autenticado", apperror.Unauthorized("credenciais invalidas"), apperror.KindUnauthorized},
 	}
 
 	for _, tt := range tests {

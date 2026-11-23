@@ -7,6 +7,9 @@ package db
 
 import (
 	"context"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 const countUsers = `-- name: CountUsers :one
@@ -56,4 +59,61 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.Version,
 	)
 	return i, err
+}
+
+const getUserByEmail = `-- name: GetUserByEmail :one
+SELECT id, name, email, password_hash, role, active, failed_logins,
+    locked_until, created_at, updated_at, version
+FROM users
+WHERE lower(email) = lower($1)
+`
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByEmail, email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.Active,
+		&i.FailedLogins,
+		&i.LockedUntil,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+	)
+	return i, err
+}
+
+const recordLoginFailure = `-- name: RecordLoginFailure :exec
+UPDATE users
+SET failed_logins = CASE WHEN failed_logins + 1 >= $1::smallint
+        THEN 0 ELSE failed_logins + 1 END,
+    locked_until = CASE WHEN failed_logins + 1 >= $1::smallint
+        THEN $2::timestamptz ELSE locked_until END
+WHERE id = $3
+`
+
+type RecordLoginFailureParams struct {
+	MaxFailures int16
+	LockedUntil time.Time
+	ID          uuid.UUID
+}
+
+func (q *Queries) RecordLoginFailure(ctx context.Context, arg RecordLoginFailureParams) error {
+	_, err := q.db.Exec(ctx, recordLoginFailure, arg.MaxFailures, arg.LockedUntil, arg.ID)
+	return err
+}
+
+const resetLoginFailures = `-- name: ResetLoginFailures :exec
+UPDATE users
+SET failed_logins = 0, locked_until = NULL
+WHERE id = $1
+`
+
+func (q *Queries) ResetLoginFailures(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, resetLoginFailures, id)
+	return err
 }

@@ -26,6 +26,7 @@ func TestWriteProblem(t *testing.T) {
 		{"conflito embrulhado", fmt.Errorf("criar ativo: %w", apperror.Conflict("identificador em uso", errors.New("23505"))), 409, "identificador em uso", 0},
 		{"validacao", apperror.Validation([]apperror.FieldError{{Field: "name", Reason: "obrigatório"}}), 422, "campo(s) invalidos", 1},
 		{"metodo nao permitido", apperror.MethodNotAllowed("metodo nao permitido nesta rota"), 405, "metodo nao permitido nesta rota", 0},
+		{"nao autenticado", apperror.Unauthorized("credenciais invalidas"), 401, "credenciais invalidas", 0},
 	}
 
 	for _, tt := range tests {
@@ -40,6 +41,9 @@ func TestWriteProblem(t *testing.T) {
 			}
 			if ct := rec.Header().Get("Content-Type"); ct != "application/problem+json" {
 				t.Errorf("Content-Type = %q", ct)
+			}
+			if auth := rec.Header().Get("WWW-Authenticate"); (rec.Code == http.StatusUnauthorized) != (auth == "Bearer") {
+				t.Errorf("WWW-Authenticate = %q com status %d", auth, rec.Code)
 			}
 
 			var p problem

@@ -40,6 +40,8 @@ func statusOf(k apperror.Kind) int {
 		return http.StatusUnsupportedMediaType
 	case apperror.KindMethodNotAllowed:
 		return http.StatusMethodNotAllowed
+	case apperror.KindUnauthorized:
+		return http.StatusUnauthorized
 	default:
 		return http.StatusInternalServerError
 	}
@@ -64,6 +66,9 @@ func writeProblem(w http.ResponseWriter, r *http.Request, err error) {
 	p.Title = http.StatusText(p.Status)
 
 	w.Header().Set("Content-Type", "application/problem+json")
+	if p.Status == http.StatusUnauthorized {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+	}
 	w.WriteHeader(p.Status)
 	if err := json.NewEncoder(w).Encode(p); err != nil {
 		log.Printf("escrever resposta de erro: %v", err)

@@ -14,6 +14,8 @@ servers:
 tags:
   - name: operacao
     description: Estado do processo e do banco
+  - name: autenticacao
+    description: login e tokens
   - name: ativos
     description: ativos de TI
 
@@ -82,6 +84,45 @@ paths:
           $ref: "#/components/responses/SemCorpo"
         "503":
           $ref: "#/components/responses/SemCorpo"
+
+  /api/v1/auth/login:
+    post:
+      tags: [autenticacao]
+      operationId: login
+      summary: troca e-mail e senha por um token de acesso
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Login"
+      responses:
+        "200":
+          description: credenciais certas
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              description: o token nao pode ficar em cache
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Token"
+        "400":
+          $ref: "#/components/responses/Invalid"
+          description: JSON malformado, corpo vazio, campo desconhecido ou com tipo errado
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "500":
+          $ref: "#/components/responses/Internal"
 
   /api/v1/ativos:
     get:
@@ -499,6 +540,39 @@ components:
           format: int64
           description: total de ativos que atendem aos filtros
 
+    Login:
+      type: object
+      required: [email, password]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+          format: password
+      examples:
+        - email: admin@sentinela.test
+          password: uma-senha-longa-de-exemplo
+
+    Token:
+      type: object
+      required: [access_token, token_type, expires_in]
+      properties:
+        access_token:
+          type: string
+          description: JWT assinado com Ed25519
+        token_type:
+          type: string
+          const: Bearer
+        expires_in:
+          type: integer
+          description: validade em segundos
+          const: 900
+      examples:
+        - access_token: eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.claims.assinatura
+          token_type: Bearer
+          expires_in: 900
+
     Problema:
       type: object
       description: RFC 9457
@@ -552,6 +626,28 @@ components:
             status: 400
             detail: id invalido
             instance: /api/v1/ativos/123
+            request_id: 4b0f6a3e-2d1c-4e8f-9a7b-1c2d3e4f5a6b
+
+    Unauthorized:
+      description: credenciais invalidas; a mesma resposta para e-mail inexistente, senha errada, conta bloqueada ou desativada
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        WWW-Authenticate:
+          description: esquema de autenticacao da API
+          schema:
+            type: string
+            const: Bearer
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problema"
+          example:
+            type: about:blank
+            title: Unauthorized
+            status: 401
+            detail: credenciais invalidas
+            instance: /api/v1/auth/login
             request_id: 4b0f6a3e-2d1c-4e8f-9a7b-1c2d3e4f5a6b
 
     NotFound:

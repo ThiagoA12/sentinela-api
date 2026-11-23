@@ -13,6 +13,7 @@ const (
 	KindTooLarge
 	KindUnsupportedMedia
 	KindMethodNotAllowed
+	KindUnauthorized
 )
 
 type FieldError struct {
@@ -64,6 +65,10 @@ func UnsupportedMedia(detail string) *Error {
 
 func MethodNotAllowed(detail string) *Error {
 	return &Error{Kind: KindMethodNotAllowed, Detail: detail}
+}
+
+func Unauthorized(detail string) *Error {
+	return &Error{Kind: KindUnauthorized, Detail: detail}
 }
 
 func KindOf(err error) Kind {
