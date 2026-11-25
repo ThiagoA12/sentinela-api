@@ -20,10 +20,21 @@ import (
 
 var fixedTime = time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 
+var usuarioDoToken = domain.User{
+	ID:     uuid.MustParse("01a1cab1-9c80-7a10-8000-0000000000a2"),
+	Role:   domain.RoleAnalista,
+	Active: true,
+}
+
+func comUsuario(r *http.Request, u domain.User) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), userKey, u))
+}
+
 type fakeAssetService struct {
 	err     error
 	page    service.AssetPage
 	listed  *service.ListAssetsInput
+	actor   *domain.User
 	created *service.CreateAssetInput
 	gotID   *uuid.UUID
 	updated *service.UpdateAssetInput
@@ -37,7 +48,8 @@ func (f *fakeAssetService) List(ctx context.Context, in service.ListAssetsInput)
 	return f.page, nil
 }
 
-func (f *fakeAssetService) Create(ctx context.Context, in service.CreateAssetInput) (domain.Asset, error) {
+func (f *fakeAssetService) Create(ctx context.Context, actor domain.User, in service.CreateAssetInput) (domain.Asset, error) {
+	f.actor = &actor
 	f.created = &in
 	if f.err != nil {
 		return domain.Asset{}, f.err
@@ -49,6 +61,8 @@ func (f *fakeAssetService) Create(ctx context.Context, in service.CreateAssetInp
 		Type:        domain.AssetType(in.Type),
 		Criticality: domain.Criticality(in.Criticality),
 		Description: in.Description,
+		OwnerID:     actor.ID,
+		CreatedBy:   actor.ID,
 		CreatedAt:   fixedTime,
 		UpdatedAt:   fixedTime,
 		Version:     1,
@@ -72,7 +86,8 @@ func (f *fakeAssetService) Get(ctx context.Context, id uuid.UUID) (domain.Asset,
 	}, nil
 }
 
-func (f *fakeAssetService) Update(ctx context.Context, id uuid.UUID, in service.UpdateAssetInput) (domain.Asset, error) {
+func (f *fakeAssetService) Update(ctx context.Context, actor domain.User, id uuid.UUID, in service.UpdateAssetInput) (domain.Asset, error) {
+	f.actor = &actor
 	f.gotID = &id
 	f.updated = &in
 	if f.err != nil {
@@ -105,7 +120,7 @@ func postAtivo(svc *fakeAssetService, contentType, body string) *httptest.Respon
 		req.Header.Set("Content-Type", contentType)
 	}
 	rec := httptest.NewRecorder()
-	handleCriaAtivo(svc)(rec, req)
+	handleCriaAtivo(svc)(rec, comUsuario(req, usuarioDoToken))
 	return rec
 }
 
@@ -142,6 +157,9 @@ func TestCriaAtivo(t *testing.T) {
 	if *svc.created != want {
 		t.Errorf("entrada = %+v, esperado %+v", *svc.created, want)
 	}
+	if svc.actor == nil || *svc.actor != usuarioDoToken {
+		t.Errorf("service recebeu o usuario %+v, esperado %+v", svc.actor, usuarioDoToken)
+	}
 
 	var resp map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
@@ -155,6 +173,41 @@ func TestCriaAtivo(t *testing.T) {
 	}
 	if _, ok := resp["deleted_at"]; ok {
 		t.Error("deleted_at nao deveria aparecer")
+	}
+	for _, campo := range []string{"owner_id", "created_by"} {
+		if resp[campo] != usuarioDoToken.ID.String() {
+			t.Errorf("%s = %v, esperado %s", campo, resp[campo], usuarioDoToken.ID)
+		}
+	}
+}
+
+func TestCriaAtivoComResponsavel(t *testing.T) {
+	svc := &fakeAssetService{}
+	body := `{"name":"Servidor web","identifier":"srv-web-01","type":"servidor","criticality":"alta","owner_id":"01a1cab1-9c80-7a10-8000-0000000000a3"}`
+
+	rec := postAtivo(svc, "application/json", body)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, esperado 201; corpo: %s", rec.Code, rec.Body)
+	}
+	if svc.created == nil || svc.created.OwnerID == nil || *svc.created.OwnerID != "01a1cab1-9c80-7a10-8000-0000000000a3" {
+		t.Errorf("service recebeu %+v, esperado o owner_id do corpo", svc.created)
+	}
+}
+
+func TestCriaAtivoSemUsuario(t *testing.T) {
+	svc := &fakeAssetService{}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/ativos", strings.NewReader(`{"name":"x"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handleCriaAtivo(svc)(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, esperado 500", rec.Code)
+	}
+	if svc.created != nil {
+		t.Error("service nao deveria ter sido chamado")
 	}
 }
 
@@ -174,7 +227,7 @@ func TestCriaAtivoRequisicaoRecusada(t *testing.T) {
 		{"espacos depois do objeto passam de 1MB", "application/json", valido + strings.Repeat(" ", 1100000), http.StatusRequestEntityTooLarge, "corpo maior que 1MB"},
 		{"corpo vazio", "application/json", "", http.StatusBadRequest, "corpo vazio"},
 		{"json cortado", "application/json", `{"name":`, http.StatusBadRequest, "JSON malformado"},
-		{"campo desconhecido", "application/json", `{"owner_id":"x"}`, http.StatusBadRequest, `campo desconhecido: "owner_id"`},
+		{"campo desconhecido", "application/json", `{"created_by":"x"}`, http.StatusBadRequest, `campo desconhecido: "created_by"`},
 		{"tipo errado", "application/json", `{"name":123}`, http.StatusBadRequest, "campo name com tipo invalido"},
 		{"array no lugar de objeto", "application/json", `[1]`, http.StatusBadRequest, "o corpo deve ser um objeto JSON"},
 		{"dois objetos", "application/json", valido + valido, http.StatusBadRequest, "o corpo deve ter um unico objeto json"},
@@ -368,14 +421,14 @@ func patchAtivo(svc *fakeAssetService, id, body string) *httptest.ResponseRecord
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/ativos/"+id, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	mux.ServeHTTP(rec, comUsuario(req, usuarioDoToken))
 	return rec
 }
 
 func TestAtualizaAtivo(t *testing.T) {
 	id := uuid.MustParse("019a3c1e-0000-7000-8000-000000000001")
 	svc := &fakeAssetService{}
-	rec := patchAtivo(svc, id.String(), `{"criticality":"media","description":"","version":3}`)
+	rec := patchAtivo(svc, id.String(), `{"criticality":"media","description":"","owner_id":"01a1cab1-9c80-7a10-8000-0000000000a3","version":3}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, esperado 200; corpo: %s", rec.Code, rec.Body.String())
@@ -393,10 +446,14 @@ func TestAtualizaAtivo(t *testing.T) {
 	want := service.UpdateAssetInput{
 		Criticality: ptr("media"),
 		Description: ptr(""),
+		OwnerID:     ptr("01a1cab1-9c80-7a10-8000-0000000000a3"),
 		Version:     ptr(int32(3)),
 	}
 	if !reflect.DeepEqual(*svc.updated, want) {
 		t.Errorf("service recebeu %+v, esperado %+v", *svc.updated, want)
+	}
+	if svc.actor == nil || *svc.actor != usuarioDoToken {
+		t.Errorf("service recebeu o usuario %+v, esperado %+v", svc.actor, usuarioDoToken)
 	}
 
 	var body ativoResponse
@@ -425,6 +482,8 @@ func TestAtualizaAtivoErros(t *testing.T) {
 		{"validacao", valido, `{"name":"  ","version":3}`, apperror.Validation([]apperror.FieldError{{Field: "name", Reason: "obrigatorio"}}), http.StatusUnprocessableEntity, "campo(s) invalidos", true},
 		{"nao encontrado", valido, `{"version":3}`, apperror.NotFound("ativo nao encontrado"), http.StatusNotFound, "ativo nao encontrado", true},
 		{"versao desatualizada", valido, `{"name":"Novo","version":2}`, apperror.Conflict("ativo alterado por outra requisicao; busque a versao atual e tente de novo", nil), http.StatusConflict, "ativo alterado por outra requisicao; busque a versao atual e tente de novo", true},
+		{"ativo de outro responsavel", valido, `{"name":"Novo","version":3}`, apperror.Forbidden("so o responsavel ou um admin altera este ativo"), http.StatusForbidden, "so o responsavel ou um admin altera este ativo", true},
+		{"tenta trocar o autor", valido, `{"created_by":"019a3c1e-0000-7000-8000-000000000002","version":3}`, nil, http.StatusBadRequest, `campo desconhecido: "created_by"`, false},
 	}
 
 	for _, tt := range tests {
@@ -452,6 +511,24 @@ func TestAtualizaAtivoErros(t *testing.T) {
 				t.Errorf("service chamado = %v, esperado %v", chamado, tt.wantChamado)
 			}
 		})
+	}
+}
+
+func TestAtualizaAtivoSemUsuario(t *testing.T) {
+	svc := &fakeAssetService{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("PATCH /api/v1/ativos/{id}", handleAtualizaAtivo(svc))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/ativos/019a3c1e-0000-7000-8000-000000000001", strings.NewReader(`{"version":3}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, esperado 500", rec.Code)
+	}
+	if svc.updated != nil {
+		t.Error("service nao deveria ter sido chamado")
 	}
 }
 
@@ -546,7 +623,7 @@ func TestListaAtivos(t *testing.T) {
 		Total:    5,
 	}}
 
-	rec := listaAtivos(svc, "type=servidor&criticality=alta&q=db&sort=-name&page=2&page_size=2")
+	rec := listaAtivos(svc, "type=servidor&criticality=alta&owner_id=01a1cab1-9c80-7a10-8000-0000000000a3&q=db&sort=-name&page=2&page_size=2")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, esperado 200; corpo: %s", rec.Code, rec.Body)
@@ -558,6 +635,7 @@ func TestListaAtivos(t *testing.T) {
 	want := service.ListAssetsInput{
 		Type:        ptr("servidor"),
 		Criticality: ptr("alta"),
+		OwnerID:     ptr(uuid.MustParse("01a1cab1-9c80-7a10-8000-0000000000a3")),
 		Search:      ptr("db"),
 		Sort:        ptr("-name"),
 		Page:        ptr(2),
@@ -617,6 +695,8 @@ func TestListaAtivosRequisicaoRecusada(t *testing.T) {
 		{"page_size decimal", "page_size=1.5", "parametro page_size deve ser um numero inteiro"},
 		{"page gigante", "page=99999999999999999999", "parametro page deve ser um numero inteiro"},
 		{"query malformada", "q=%zz", "query string malformada"},
+		{"owner_id que nao e uuid", "owner_id=abc", "parametro owner_id deve ser um uuid"},
+		{"owner_id vazio", "owner_id=", "parametro owner_id deve ser um uuid"},
 	}
 
 	for _, tt := range tests {

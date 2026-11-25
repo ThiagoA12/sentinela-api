@@ -173,6 +173,7 @@ paths:
         - $ref: "#/components/parameters/Sort"
         - $ref: "#/components/parameters/Type"
         - $ref: "#/components/parameters/Criticality"
+        - $ref: "#/components/parameters/OwnerID"
         - $ref: "#/components/parameters/Q"
       responses:
         "200":
@@ -186,7 +187,7 @@ paths:
                 $ref: "#/components/schemas/ListaAtivos"
         "400":
           $ref: "#/components/responses/Invalid"
-          description: parametro desconhecido, repetido, numero invalido ou query string malformada
+          description: parametro desconhecido, repetido, numero invalido, owner_id que nao e UUID ou query string malformada
         "401":
           $ref: "#/components/responses/TokenRejected"
         "422":
@@ -205,6 +206,7 @@ paths:
         - $ref: "#/components/parameters/Sort"
         - $ref: "#/components/parameters/Type"
         - $ref: "#/components/parameters/Criticality"
+        - $ref: "#/components/parameters/OwnerID"
         - $ref: "#/components/parameters/Q"
       responses:
         "200":
@@ -250,7 +252,7 @@ paths:
           $ref: "#/components/responses/TokenRejected"
         "403":
           $ref: "#/components/responses/Forbidden"
-          description: so admin e analista criam ativos
+          description: so admin e analista criam ativos; so admin manda owner_id
         "409":
           $ref: "#/components/responses/Conflict"
           description: ja existe um ativo nao excluido com este identifier
@@ -335,7 +337,7 @@ paths:
           $ref: "#/components/responses/TokenRejected"
         "403":
           $ref: "#/components/responses/Forbidden"
-          description: so admin e analista alteram ativos
+          description: so admin e o analista responsavel alteram o ativo; so admin manda owner_id
         "404":
           $ref: "#/components/responses/NotFound"
           description: ativo inexistente ou excluido
@@ -492,6 +494,15 @@ components:
       schema:
         $ref: "#/components/schemas/Criticidade"
 
+
+    OwnerID:
+      name: owner_id
+      in: query
+      description: so os ativos deste responsavel
+      schema:
+        type: string
+        format: uuid
+
     Q:
       name: q
       in: query
@@ -529,6 +540,8 @@ components:
         - type
         - criticality
         - description
+        - owner_id
+        - created_by
         - created_at
         - updated_at
         - version
@@ -547,6 +560,14 @@ components:
           $ref: "#/components/schemas/Criticidade"
         description:
           type: [string, "null"]
+        owner_id:
+          type: string
+          format: uuid
+          description: usuario responsavel pelo ativo
+        created_by:
+          type: string
+          format: uuid
+          description: usuario que cadastrou o ativo
         created_at:
           type: string
           format: date-time
@@ -564,6 +585,8 @@ components:
           type: servidor
           criticality: alta
           description: null
+          owner_id: 01a1cab1-9c80-7a10-8000-000000000001
+          created_by: 01a1cab1-9c80-7a10-8000-000000000001
           created_at: "2026-11-11T13:00:00Z"
           updated_at: "2026-11-11T13:00:00Z"
           version: 1
@@ -589,6 +612,10 @@ components:
           type: [string, "null"]
           maxLength: 2000
           description: vazio, null ou ausente fica sem descricao
+        owner_id:
+          type: string
+          format: uuid
+          description: so admin; ausente, o responsavel e quem cria
       examples:
         - name: Servidor de arquivos
           identifier: srv-arquivos-01
@@ -617,6 +644,10 @@ components:
           type: [string, "null"]
           maxLength: 2000
           description: ausente ou null mantem o valor atual; vazio remove a descricao
+        owner_id:
+          type: string
+          format: uuid
+          description: so admin; troca o responsavel
         version:
           type: integer
           format: int32

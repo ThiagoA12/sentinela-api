@@ -65,6 +65,37 @@ func (f *fakeAssetStore) Delete(ctx context.Context, id uuid.UUID) error {
 	return f.err
 }
 
+type fakeOwnerStore struct {
+	users []domain.User
+	err   error
+	asked bool
+}
+
+func (f *fakeOwnerStore) GetByID(ctx context.Context, id uuid.UUID) (domain.User, error) {
+	f.asked = true
+	if f.err != nil {
+		return domain.User{}, f.err
+	}
+	for _, u := range f.users {
+		if u.ID == id {
+			return u, nil
+		}
+	}
+	return domain.User{}, apperror.NotFound("usuario nao encontrado")
+}
+
+var (
+	admin         = domain.User{ID: uuid.MustParse("01a1cab1-9c80-7a10-8000-0000000000a1"), Role: domain.RoleAdmin, Active: true}
+	analista      = domain.User{ID: uuid.MustParse("01a1cab1-9c80-7a10-8000-0000000000a2"), Role: domain.RoleAnalista, Active: true}
+	outroAnalista = domain.User{ID: uuid.MustParse("01a1cab1-9c80-7a10-8000-0000000000a3"), Role: domain.RoleAnalista, Active: true}
+	leitor        = domain.User{ID: uuid.MustParse("01a1cab1-9c80-7a10-8000-0000000000a4"), Role: domain.RoleLeitor, Active: true}
+	desativado    = domain.User{ID: uuid.MustParse("01a1cab1-9c80-7a10-8000-0000000000a5"), Role: domain.RoleAnalista}
+)
+
+func usuarios() *fakeOwnerStore {
+	return &fakeOwnerStore{users: []domain.User{admin, analista, outroAnalista, leitor, desativado}}
+}
+
 func ptr[T any](v T) *T {
 	return &v
 }
@@ -75,7 +106,7 @@ func TestAssetServiceList(t *testing.T) {
 		{ID: uuid.New(), Name: "portal", Type: domain.AssetTypeAplicacao},
 	}
 	store := &fakeAssetStore{assets: want}
-	svc := service.NewAssetService(store)
+	svc := service.NewAssetService(store, nil)
 
 	got, err := svc.List(context.Background(), service.ListAssetsInput{})
 	if err != nil {
@@ -101,7 +132,7 @@ func TestAssetServiceList(t *testing.T) {
 
 func TestAssetServiceListPropagaErro(t *testing.T) {
 	errBanco := errors.New("banco fora do ar")
-	svc := service.NewAssetService(&fakeAssetStore{err: errBanco})
+	svc := service.NewAssetService(&fakeAssetStore{err: errBanco}, nil)
 
 	_, err := svc.List(context.Background(), service.ListAssetsInput{})
 	if !errors.Is(err, errBanco) {
@@ -111,7 +142,7 @@ func TestAssetServiceListPropagaErro(t *testing.T) {
 
 func TestAssetServiceCreate(t *testing.T) {
 	store := &fakeAssetStore{}
-	svc := service.NewAssetService(store)
+	svc := service.NewAssetService(store, nil)
 
 	in := service.CreateAssetInput{
 		Name:        "  srv-web-01  ",
@@ -121,7 +152,7 @@ func TestAssetServiceCreate(t *testing.T) {
 		Description: ptr("  servidor web principal  "),
 	}
 
-	got, err := svc.Create(context.Background(), in)
+	got, err := svc.Create(context.Background(), analista, in)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
@@ -144,6 +175,9 @@ func TestAssetServiceCreate(t *testing.T) {
 	}
 	if c.Description == nil || *c.Description != "servidor web principal" {
 		t.Errorf("description = %v, esperado %q", c.Description, "servidor web principal")
+	}
+	if c.OwnerID != analista.ID || c.CreatedBy != analista.ID {
+		t.Errorf("owner_id = %v, created_by = %v; esperado os dois %v", c.OwnerID, c.CreatedBy, analista.ID)
 	}
 	if got.ID == uuid.Nil {
 		t.Error("ID vazio no ativo devolvido")
@@ -232,12 +266,12 @@ func TestAssetServiceCreateValidacao(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &fakeAssetStore{}
-			svc := service.NewAssetService(store)
+			svc := service.NewAssetService(store, nil)
 
 			in := validInput()
 			tt.modify(&in)
 
-			_, err := svc.Create(context.Background(), in)
+			_, err := svc.Create(context.Background(), analista, in)
 
 			if tt.want == nil {
 				if err != nil {
@@ -262,9 +296,9 @@ func TestAssetServiceCreateValidacao(t *testing.T) {
 
 func TestAssetServiceCreatePropagaErro(t *testing.T) {
 	errConflito := apperror.Conflict("ja existe um ativo com este identificador", errors.New("23505"))
-	svc := service.NewAssetService(&fakeAssetStore{err: errConflito})
+	svc := service.NewAssetService(&fakeAssetStore{err: errConflito}, nil)
 
-	_, err := svc.Create(context.Background(), validInput())
+	_, err := svc.Create(context.Background(), analista, validInput())
 	if !errors.Is(err, errConflito) {
 		t.Fatalf("erro = %v, esperado %v", err, errConflito)
 	}
@@ -282,15 +316,17 @@ func ativoAtual() domain.Asset {
 		Criticality: domain.CriticalityAlta,
 		Description: ptr("fica na DMZ"),
 		Version:     3,
+		OwnerID:     analista.ID,
+		CreatedBy:   admin.ID,
 	}
 }
 
 func TestAssetServiceUpdate(t *testing.T) {
 	atual := ativoAtual()
 	store := &fakeAssetStore{assets: []domain.Asset{atual}}
-	svc := service.NewAssetService(store)
+	svc := service.NewAssetService(store, nil)
 
-	got, err := svc.Update(context.Background(), atual.ID, service.UpdateAssetInput{
+	got, err := svc.Update(context.Background(), analista, atual.ID, service.UpdateAssetInput{
 		Criticality: ptr("media"),
 		Description: ptr("   "),
 		Version:     ptr(int32(3)),
@@ -331,15 +367,16 @@ func TestAssetServiceUpdateErros(t *testing.T) {
 		{"name so com espacos", atual.ID, service.UpdateAssetInput{Name: ptr("   "), Version: ptr(int32(3))}, nil, apperror.KindValidation, "name", false},
 		{"type desconhecido", atual.ID, service.UpdateAssetInput{Type: ptr("impressora"), Version: ptr(int32(3))}, nil, apperror.KindValidation, "type", false},
 		{"ativo inexistente", uuid.MustParse("019a3c1e-0000-7000-8000-000000000099"), service.UpdateAssetInput{Version: ptr(int32(3))}, nil, apperror.KindNotFound, "", false},
-		{"versao desatualizada", atual.ID, service.UpdateAssetInput{Name: ptr("Novo"), Version: ptr(int32(2))}, conflito, apperror.KindConflict, "", true},
+		{"versao desatualizada", atual.ID, service.UpdateAssetInput{Name: ptr("Novo"), Version: ptr(int32(2))}, nil, apperror.KindConflict, "", false},
+		{"alterado entre a leitura e a escrita", atual.ID, service.UpdateAssetInput{Name: ptr("Novo"), Version: ptr(int32(3))}, conflito, apperror.KindConflict, "", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &fakeAssetStore{assets: []domain.Asset{atual}, updateErr: tt.updateErr}
-			svc := service.NewAssetService(store)
+			svc := service.NewAssetService(store, nil)
 
-			_, err := svc.Update(context.Background(), tt.id, tt.in)
+			_, err := svc.Update(context.Background(), analista, tt.id, tt.in)
 
 			if got := apperror.KindOf(err); got != tt.wantKind {
 				t.Fatalf("Kind = %v, esperado %v (erro: %v)", got, tt.wantKind, err)
@@ -362,11 +399,12 @@ func TestAssetServiceUpdateErros(t *testing.T) {
 
 func TestAssetServiceListFiltro(t *testing.T) {
 	store := &fakeAssetStore{}
-	svc := service.NewAssetService(store)
+	svc := service.NewAssetService(store, nil)
 
 	in := service.ListAssetsInput{
 		Type:        ptr("servidor"),
 		Criticality: ptr("alta"),
+		OwnerID:     ptr(analista.ID),
 		Search:      ptr("  db_  "),
 		Sort:        ptr("-criticality"),
 		Page:        ptr(3),
@@ -383,6 +421,7 @@ func TestAssetServiceListFiltro(t *testing.T) {
 	want := domain.AssetFilter{
 		Type:        ptr(domain.AssetTypeServidor),
 		Criticality: ptr(domain.CriticalityAlta),
+		OwnerID:     ptr(analista.ID),
 		Search:      ptr("db_"),
 		Sort:        "-criticality",
 		Page:        3,
@@ -395,7 +434,7 @@ func TestAssetServiceListFiltro(t *testing.T) {
 
 func TestAssetServiceListBuscaEmBranco(t *testing.T) {
 	store := &fakeAssetStore{}
-	svc := service.NewAssetService(store)
+	svc := service.NewAssetService(store, nil)
 
 	if _, err := svc.List(context.Background(), service.ListAssetsInput{Search: ptr("   ")}); err != nil {
 		t.Fatalf("erro inesperado: %v", err)
@@ -442,7 +481,7 @@ func TestAssetServiceListValidacao(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &fakeAssetStore{}
-			svc := service.NewAssetService(store)
+			svc := service.NewAssetService(store, nil)
 
 			_, err := svc.List(context.Background(), tt.in)
 
@@ -471,5 +510,260 @@ func TestAssetServiceListValidacao(t *testing.T) {
 				t.Error("store nao deveria ter sido chamado")
 			}
 		})
+	}
+}
+
+func TestAssetServiceCreateResponsavel(t *testing.T) {
+	tests := []struct {
+		name      string
+		actor     domain.User
+		ownerID   *string
+		wantOwner uuid.UUID
+	}{
+		{"analista sem owner_id vira o responsavel", analista, nil, analista.ID},
+		{"admin sem owner_id vira o responsavel", admin, nil, admin.ID},
+		{"admin escolhe um analista", admin, ptr(outroAnalista.ID.String()), outroAnalista.ID},
+		{"admin escolhe a si mesmo", admin, ptr(admin.ID.String()), admin.ID},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeAssetStore{}
+			svc := service.NewAssetService(store, usuarios())
+
+			in := validInput()
+			in.OwnerID = tt.ownerID
+
+			if _, err := svc.Create(context.Background(), tt.actor, in); err != nil {
+				t.Fatalf("erro inesperado: %v", err)
+			}
+			if store.created == nil {
+				t.Fatal("store.Create nao foi chamado")
+			}
+			if store.created.OwnerID != tt.wantOwner {
+				t.Errorf("owner_id = %v, esperado %v", store.created.OwnerID, tt.wantOwner)
+			}
+			if store.created.CreatedBy != tt.actor.ID {
+				t.Errorf("created_by = %v, esperado quem criou (%v)", store.created.CreatedBy, tt.actor.ID)
+			}
+		})
+	}
+}
+
+func TestAssetServiceCreateResponsavelRecusado(t *testing.T) {
+	campoOwner := apperror.FieldError{Field: "owner_id", Reason: "deve ser o id de um admin ou analista ativo"}
+
+	tests := []struct {
+		name      string
+		actor     domain.User
+		modify    func(in *service.CreateAssetInput)
+		wantKind  apperror.Kind
+		want      []apperror.FieldError
+		wantAsked bool
+	}{
+		{"analista manda o proprio id", analista,
+			func(in *service.CreateAssetInput) { in.OwnerID = ptr(analista.ID.String()) },
+			apperror.KindForbidden, nil, false},
+		{"analista manda o id de outro", analista,
+			func(in *service.CreateAssetInput) { in.OwnerID = ptr(outroAnalista.ID.String()) },
+			apperror.KindForbidden, nil, false},
+		{"admin escolhe um leitor", admin,
+			func(in *service.CreateAssetInput) { in.OwnerID = ptr(leitor.ID.String()) },
+			apperror.KindValidation, []apperror.FieldError{campoOwner}, true},
+		{"admin escolhe um desativado", admin,
+			func(in *service.CreateAssetInput) { in.OwnerID = ptr(desativado.ID.String()) },
+			apperror.KindValidation, []apperror.FieldError{campoOwner}, true},
+		{"admin escolhe um inexistente", admin,
+			func(in *service.CreateAssetInput) { in.OwnerID = ptr(uuid.NewString()) },
+			apperror.KindValidation, []apperror.FieldError{campoOwner}, true},
+		{"admin manda texto que nao e uuid", admin,
+			func(in *service.CreateAssetInput) { in.OwnerID = ptr("abc") },
+			apperror.KindValidation, []apperror.FieldError{campoOwner}, false},
+		{"admin manda nome vazio e um leitor", admin,
+			func(in *service.CreateAssetInput) {
+				in.Name = ""
+				in.OwnerID = ptr(leitor.ID.String())
+			},
+			apperror.KindValidation, []apperror.FieldError{{Field: "name", Reason: "obrigatorio"}, campoOwner}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeAssetStore{}
+			owners := usuarios()
+			svc := service.NewAssetService(store, owners)
+
+			in := validInput()
+			tt.modify(&in)
+
+			_, err := svc.Create(context.Background(), tt.actor, in)
+
+			var appErr *apperror.Error
+			if !errors.As(err, &appErr) || appErr.Kind != tt.wantKind {
+				t.Fatalf("erro = %v, esperado Kind %v", err, tt.wantKind)
+			}
+			if !slices.Equal(appErr.Fields, tt.want) {
+				t.Errorf("fields = %v, esperado %v", appErr.Fields, tt.want)
+			}
+			if owners.asked != tt.wantAsked {
+				t.Errorf("buscou o responsavel = %v, esperado %v", owners.asked, tt.wantAsked)
+			}
+			if store.created != nil {
+				t.Error("store.Create foi chamado")
+			}
+		})
+	}
+}
+
+func TestAssetServiceCreateErroAoBuscarResponsavel(t *testing.T) {
+	errBanco := errors.New("banco fora do ar")
+	store := &fakeAssetStore{}
+	svc := service.NewAssetService(store, &fakeOwnerStore{err: errBanco})
+
+	in := validInput()
+	in.OwnerID = ptr(analista.ID.String())
+
+	_, err := svc.Create(context.Background(), admin, in)
+	if !errors.Is(err, errBanco) {
+		t.Fatalf("erro = %v, esperado %v", err, errBanco)
+	}
+	if store.created != nil {
+		t.Error("store.Create foi chamado")
+	}
+}
+
+func TestAssetServiceUpdateResponsavel(t *testing.T) {
+	mesmoCorpo := service.UpdateAssetInput{Name: ptr("Servidor web novo"), Version: ptr(int32(3))}
+
+	tests := []struct {
+		name    string
+		actor   domain.User
+		allowed bool
+	}{
+		{"analista responsavel", analista, true},
+		{"outro analista", outroAnalista, false},
+		{"admin", admin, true},
+		{"leitor", leitor, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeAssetStore{assets: []domain.Asset{ativoAtual()}}
+			svc := service.NewAssetService(store, usuarios())
+
+			_, err := svc.Update(context.Background(), tt.actor, ativoAtual().ID, mesmoCorpo)
+
+			if tt.allowed {
+				if err != nil {
+					t.Fatalf("erro inesperado: %v", err)
+				}
+				if store.updated == nil {
+					t.Fatal("store.Update nao foi chamado")
+				}
+				return
+			}
+			if apperror.KindOf(err) != apperror.KindForbidden {
+				t.Fatalf("erro = %v, esperado KindForbidden", err)
+			}
+			if store.updated != nil {
+				t.Error("store.Update foi chamado")
+			}
+		})
+	}
+}
+
+func TestAssetServiceUpdateTrocaResponsavel(t *testing.T) {
+	store := &fakeAssetStore{assets: []domain.Asset{ativoAtual()}}
+	svc := service.NewAssetService(store, usuarios())
+
+	_, err := svc.Update(context.Background(), admin, ativoAtual().ID, service.UpdateAssetInput{
+		OwnerID: ptr(outroAnalista.ID.String()),
+		Version: ptr(int32(3)),
+	})
+	if err != nil {
+		t.Fatalf("erro inesperado: %v", err)
+	}
+
+	want := ativoAtual()
+	want.OwnerID = outroAnalista.ID
+	if store.updated == nil || !reflect.DeepEqual(*store.updated, want) {
+		t.Errorf("store recebeu %+v, esperado %+v", store.updated, want)
+	}
+}
+
+func TestAssetServiceUpdateRecusado(t *testing.T) {
+	tests := []struct {
+		name      string
+		actor     domain.User
+		in        service.UpdateAssetInput
+		wantKind  apperror.Kind
+		wantField string
+	}{
+		{"analista responsavel manda owner_id", analista,
+			service.UpdateAssetInput{OwnerID: ptr(analista.ID.String()), Version: ptr(int32(3))},
+			apperror.KindForbidden, ""},
+		{"owner_id sem version: 403 antes do 422", analista,
+			service.UpdateAssetInput{OwnerID: ptr(analista.ID.String())},
+			apperror.KindForbidden, ""},
+		{"outro analista com version velha: 403 antes do 409", outroAnalista,
+			service.UpdateAssetInput{Name: ptr("Novo"), Version: ptr(int32(2))},
+			apperror.KindForbidden, ""},
+		{"outro analista com nome vazio: 403 antes do 422", outroAnalista,
+			service.UpdateAssetInput{Name: ptr(""), Version: ptr(int32(3))},
+			apperror.KindForbidden, ""},
+		{"version velha com nome vazio: 409 antes do 422", analista,
+			service.UpdateAssetInput{Name: ptr(""), Version: ptr(int32(2))},
+			apperror.KindConflict, ""},
+		{"version seguinte adivinhada", analista,
+			service.UpdateAssetInput{Name: ptr("Novo"), Version: ptr(int32(4))},
+			apperror.KindConflict, ""},
+		{"admin passa para um leitor", admin,
+			service.UpdateAssetInput{OwnerID: ptr(leitor.ID.String()), Version: ptr(int32(3))},
+			apperror.KindValidation, "owner_id"},
+		{"admin passa para um desativado", admin,
+			service.UpdateAssetInput{OwnerID: ptr(desativado.ID.String()), Version: ptr(int32(3))},
+			apperror.KindValidation, "owner_id"},
+		{"admin manda texto que nao e uuid", admin,
+			service.UpdateAssetInput{OwnerID: ptr("abc"), Version: ptr(int32(3))},
+			apperror.KindValidation, "owner_id"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeAssetStore{assets: []domain.Asset{ativoAtual()}}
+			svc := service.NewAssetService(store, usuarios())
+
+			_, err := svc.Update(context.Background(), tt.actor, ativoAtual().ID, tt.in)
+
+			if got := apperror.KindOf(err); got != tt.wantKind {
+				t.Fatalf("Kind = %v, esperado %v (erro: %v)", got, tt.wantKind, err)
+			}
+			if tt.wantField != "" {
+				var appErr *apperror.Error
+				if !errors.As(err, &appErr) || len(appErr.Fields) != 1 || appErr.Fields[0].Field != tt.wantField {
+					t.Errorf("erro = %v, esperado so o campo %q", err, tt.wantField)
+				}
+			}
+			if store.updated != nil {
+				t.Error("store.Update foi chamado")
+			}
+		})
+	}
+}
+
+func TestAssetServiceUpdateErroAoBuscarResponsavel(t *testing.T) {
+	errBanco := errors.New("banco fora do ar")
+	store := &fakeAssetStore{assets: []domain.Asset{ativoAtual()}}
+	svc := service.NewAssetService(store, &fakeOwnerStore{err: errBanco})
+
+	_, err := svc.Update(context.Background(), admin, ativoAtual().ID, service.UpdateAssetInput{
+		OwnerID: ptr(outroAnalista.ID.String()),
+		Version: ptr(int32(3)),
+	})
+	if !errors.Is(err, errBanco) {
+		t.Fatalf("erro = %v, esperado %v", err, errBanco)
+	}
+	if store.updated != nil {
+		t.Error("store.Update foi chamado")
 	}
 }

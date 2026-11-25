@@ -21,6 +21,8 @@ type Asset struct {
 	UpdatedAt   time.Time
 	DeletedAt   *time.Time
 	Version     int32
+	OwnerID     uuid.UUID
+	CreatedBy   uuid.UUID
 }
 
 type AuditLog struct {

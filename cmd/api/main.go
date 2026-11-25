@@ -69,7 +69,7 @@ func run() error {
 	}
 
 	assetRepo := repository.NewAssetRepository(pool)
-	assetSvc := service.NewAssetService(assetRepo)
+	assetSvc := service.NewAssetService(assetRepo, userRepo)
 	authSvc := service.NewAuthService(userRepo, tokens, time.Now)
 
 	mux := newRouter(authSvc, logger, apiRoutes(pool, authSvc, assetSvc, userSvc))

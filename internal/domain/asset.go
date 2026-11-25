@@ -52,11 +52,24 @@ type Asset struct {
 	UpdatedAt   time.Time
 	DeletedAt   *time.Time
 	Version     int32
+	OwnerID     uuid.UUID
+	CreatedBy   uuid.UUID
+}
+
+func (a Asset) EditableBy(u User) bool {
+	switch u.Role {
+	case RoleAdmin:
+		return true
+	case RoleAnalista:
+		return a.OwnerID == u.ID
+	}
+	return false
 }
 
 type AssetFilter struct {
 	Type        *AssetType
 	Criticality *Criticality
+	OwnerID     *uuid.UUID
 	Search      *string
 	Sort        string
 	Page        int

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"time"
@@ -15,9 +16,9 @@ import (
 
 type assetService interface {
 	List(ctx context.Context, in service.ListAssetsInput) (service.AssetPage, error)
-	Create(ctx context.Context, in service.CreateAssetInput) (domain.Asset, error)
+	Create(ctx context.Context, actor domain.User, in service.CreateAssetInput) (domain.Asset, error)
 	Get(ctx context.Context, id uuid.UUID) (domain.Asset, error)
-	Update(ctx context.Context, id uuid.UUID, in service.UpdateAssetInput) (domain.Asset, error)
+	Update(ctx context.Context, actor domain.User, id uuid.UUID, in service.UpdateAssetInput) (domain.Asset, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 
@@ -27,6 +28,7 @@ type criarAtivoRequest struct {
 	Type        string  `json:"type"`
 	Criticality string  `json:"criticality"`
 	Description *string `json:"description"`
+	OwnerID     *string `json:"owner_id"`
 }
 
 type atualizarAtivoRequest struct {
@@ -35,6 +37,7 @@ type atualizarAtivoRequest struct {
 	Type        *string `json:"type"`
 	Criticality *string `json:"criticality"`
 	Description *string `json:"description"`
+	OwnerID     *string `json:"owner_id"`
 	Version     *int32  `json:"version"`
 }
 
@@ -45,6 +48,8 @@ type ativoResponse struct {
 	Type        string    `json:"type"`
 	Criticality string    `json:"criticality"`
 	Description *string   `json:"description"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+	CreatedBy   uuid.UUID `json:"created_by"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 	Version     int32     `json:"version"`
@@ -69,6 +74,8 @@ func toAtivoResponse(a domain.Asset) ativoResponse {
 		Type:        string(a.Type),
 		Criticality: string(a.Criticality),
 		Description: a.Description,
+		OwnerID:     a.OwnerID,
+		CreatedBy:   a.CreatedBy,
 		CreatedAt:   a.CreatedAt.UTC(),
 		UpdatedAt:   a.UpdatedAt.UTC(),
 		Version:     a.Version,
@@ -76,7 +83,7 @@ func toAtivoResponse(a domain.Asset) ativoResponse {
 }
 
 func listaAtivosInput(r *http.Request) (service.ListAssetsInput, error) {
-	q, err := parseQuery(r, "page", "page_size", "sort", "type", "criticality", "q")
+	q, err := parseQuery(r, "page", "page_size", "sort", "type", "criticality", "owner_id", "q")
 	if err != nil {
 		return service.ListAssetsInput{}, err
 	}
@@ -90,9 +97,15 @@ func listaAtivosInput(r *http.Request) (service.ListAssetsInput, error) {
 		return service.ListAssetsInput{}, err
 	}
 
+	ownerID, err := queryUUID(q, "owner_id")
+	if err != nil {
+		return service.ListAssetsInput{}, err
+	}
+
 	return service.ListAssetsInput{
 		Type:        queryString(q, "type"),
 		Criticality: queryString(q, "criticality"),
+		OwnerID:     ownerID,
 		Search:      queryString(q, "q"),
 		Sort:        queryString(q, "sort"),
 		Page:        page,
@@ -135,6 +148,12 @@ func handleListaAtivos(svc assetService) http.HandlerFunc {
 
 func handleCriaAtivo(svc assetService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		u, ok := userFrom(r.Context())
+		if !ok {
+			writeProblem(w, r, errors.New("usuario ausente no context: rota sem withAuth"))
+			return
+		}
+
 		var req criarAtivoRequest
 		if err := decodeJSON(w, r, &req); err != nil {
 			writeProblem(w, r, err)
@@ -144,12 +163,13 @@ func handleCriaAtivo(svc assetService) http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
-		a, err := svc.Create(ctx, service.CreateAssetInput{
+		a, err := svc.Create(ctx, u, service.CreateAssetInput{
 			Name:        req.Name,
 			Identifier:  req.Identifier,
 			Type:        req.Type,
 			Criticality: req.Criticality,
 			Description: req.Description,
+			OwnerID:     req.OwnerID,
 		})
 		if err != nil {
 			writeProblem(w, r, err)
@@ -192,6 +212,12 @@ func handleBuscaAtivo(svc assetService) http.HandlerFunc {
 
 func handleAtualizaAtivo(svc assetService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		u, ok := userFrom(r.Context())
+		if !ok {
+			writeProblem(w, r, errors.New("usuario ausente no context: rota sem withAuth"))
+			return
+		}
+
 		id, err := pathID(r)
 		if err != nil {
 			writeProblem(w, r, err)
@@ -207,12 +233,13 @@ func handleAtualizaAtivo(svc assetService) http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
-		a, err := svc.Update(ctx, id, service.UpdateAssetInput{
+		a, err := svc.Update(ctx, u, id, service.UpdateAssetInput{
 			Name:        req.Name,
 			Identifier:  req.Identifier,
 			Type:        req.Type,
 			Criticality: req.Criticality,
 			Description: req.Description,
+			OwnerID:     req.OwnerID,
 			Version:     req.Version,
 		})
 		if err != nil {

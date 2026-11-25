@@ -1,10 +1,11 @@
 -- name: ListAssets :many
 SELECT id, name, identifier, type, criticality, created_at,
-    description, updated_at, deleted_at, version
+    description, updated_at, deleted_at, version, owner_id, created_by
 FROM assets
 WHERE deleted_at IS NULL
     AND (sqlc.narg('type')::text IS NULL OR type = sqlc.narg('type'))
     AND (sqlc.narg('criticality')::text IS NULL OR criticality = sqlc.narg('criticality'))
+    AND (sqlc.narg('owner_id')::uuid IS NULL OR owner_id = sqlc.narg('owner_id'))
     AND (sqlc.narg('q')::text IS NULL
         OR name ILIKE '%' || sqlc.narg('q') || '%' ESCAPE '\'
         OR identifier ILIKE '%' || sqlc.narg('q') || '%' ESCAPE '\')
@@ -35,19 +36,20 @@ FROM assets
 WHERE deleted_at IS NULL
     AND (sqlc.narg('type')::text IS NULL OR type = sqlc.narg('type'))
     AND (sqlc.narg('criticality')::text IS NULL OR criticality = sqlc.narg('criticality'))
+    AND (sqlc.narg('owner_id')::uuid IS NULL OR owner_id = sqlc.narg('owner_id'))
     AND (sqlc.narg('q')::text IS NULL
         OR name ILIKE '%' || sqlc.narg('q') || '%' ESCAPE '\'
         OR identifier ILIKE '%' || sqlc.narg('q') || '%' ESCAPE '\');
 
 -- name: CreateAsset :one
-INSERT INTO assets (name, identifier, type, criticality, description)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO assets (name, identifier, type, criticality, description, owner_id, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING id, name, identifier, type, criticality, created_at,
-    description, updated_at, deleted_at, version;
+    description, updated_at, deleted_at, version, owner_id, created_by;
 
 -- name: GetAsset :one
 SELECT id, name, identifier, type, criticality, created_at,
-    description, updated_at, deleted_at, version
+    description, updated_at, deleted_at, version, owner_id, created_by
 FROM assets
 WHERE id = $1 AND deleted_at IS NULL;
 
@@ -58,11 +60,12 @@ SET name = $3,
     type = $5,
     criticality = $6,
     description = $7,
+    owner_id = $8,
     version = version + 1,
     updated_at = now()
 WHERE id = $1 AND version = $2 AND deleted_at IS NULL
 RETURNING id, name, identifier, type, criticality, created_at,
-    description, updated_at, deleted_at, version;
+    description, updated_at, deleted_at, version, owner_id, created_by;
 
 -- name: DeleteAsset :execrows
 UPDATE assets

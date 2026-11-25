@@ -37,6 +37,7 @@ func (r *AssetRepository) List(ctx context.Context, f domain.AssetFilter) ([]dom
 	total, err := r.q.CountAssets(ctx, db.CountAssetsParams{
 		Type:        (*string)(f.Type),
 		Criticality: (*string)(f.Criticality),
+		OwnerID:     f.OwnerID,
 		Q:           search,
 	})
 	if err != nil {
@@ -46,6 +47,7 @@ func (r *AssetRepository) List(ctx context.Context, f domain.AssetFilter) ([]dom
 	rows, err := r.q.ListAssets(ctx, db.ListAssetsParams{
 		Type:        (*string)(f.Type),
 		Criticality: (*string)(f.Criticality),
+		OwnerID:     f.OwnerID,
 		Q:           search,
 		Sort:        f.Sort,
 		PageSize:    int32(f.PageSize),
@@ -69,6 +71,8 @@ func (r *AssetRepository) Create(ctx context.Context, a domain.Asset) (domain.As
 		Type:        string(a.Type),
 		Criticality: string(a.Criticality),
 		Description: a.Description,
+		OwnerID:     a.OwnerID,
+		CreatedBy:   a.CreatedBy,
 	})
 	if err != nil {
 		return domain.Asset{}, fmt.Errorf("criar ativo: %w", identifierInUse(err))
@@ -96,6 +100,7 @@ func (r *AssetRepository) Update(ctx context.Context, a domain.Asset) (domain.As
 		Type:        string(a.Type),
 		Criticality: string(a.Criticality),
 		Description: a.Description,
+		OwnerID:     a.OwnerID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Asset{}, apperror.Conflict("ativo alterado por outra requisicao; busque a versao atual e tente de novo", err)
@@ -129,5 +134,7 @@ func toDomainAsset(a db.Asset) domain.Asset {
 		UpdatedAt:   a.UpdatedAt,
 		DeletedAt:   a.DeletedAt,
 		Version:     a.Version,
+		OwnerID:     a.OwnerID,
+		CreatedBy:   a.CreatedBy,
 	}
 }

@@ -19,7 +19,7 @@ import (
 
 func setupUsers(t *testing.T) *UserRepository {
 	t.Helper()
-	if _, err := testPool.Exec(t.Context(), "TRUNCATE audit_log, users"); err != nil {
+	if _, err := testPool.Exec(t.Context(), "TRUNCATE audit_log, assets, users"); err != nil {
 		t.Fatalf("limpar users: %v", err)
 	}
 	return NewUserRepository(testPool)

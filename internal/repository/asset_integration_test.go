@@ -28,6 +28,11 @@ const postgresImage = "postgres:18"
 
 var testPool *pgxpool.Pool
 
+var (
+	testOwnerID = uuid.MustParse("01a1cab1-9c80-7a10-8000-000000000001")
+	testOtherID = uuid.MustParse("01a1cab1-9c80-7a10-8000-000000000002")
+)
+
 func TestMain(m *testing.M) {
 	os.Exit(runIntegration(m))
 }
@@ -89,8 +94,16 @@ func runIntegration(m *testing.M) int {
 
 func setupAssets(t *testing.T) *AssetRepository {
 	t.Helper()
-	if _, err := testPool.Exec(t.Context(), "TRUNCATE assets"); err != nil {
-		t.Fatalf("limpar assets: %v", err)
+	if _, err := testPool.Exec(t.Context(), "TRUNCATE audit_log, assets, users"); err != nil {
+		t.Fatalf("limpar tabelas: %v", err)
+	}
+	_, err := testPool.Exec(t.Context(),
+		`INSERT INTO users (id, name, email, password_hash, role) VALUES
+			($1, 'Responsavel', 'dono@sentinela.test', 'hash-de-teste', 'analista'),
+			($2, 'Outro', 'outro@sentinela.test', 'hash-de-teste', 'analista')`,
+		testOwnerID, testOtherID)
+	if err != nil {
+		t.Fatalf("criar os responsaveis: %v", err)
 	}
 	return NewAssetRepository(testPool)
 }
@@ -103,6 +116,8 @@ func sampleAsset(identifier string) domain.Asset {
 		Type:        domain.AssetTypeServidor,
 		Criticality: domain.CriticalityAlta,
 		Description: &desc,
+		OwnerID:     testOwnerID,
+		CreatedBy:   testOwnerID,
 	}
 }
 
@@ -201,6 +216,8 @@ func TestAssetRepositoryUpdate(t *testing.T) {
 	changed.Name = "Servidor renomeado"
 	changed.Criticality = domain.CriticalityCritica
 	changed.Description = nil
+	changed.OwnerID = testOtherID
+	changed.CreatedBy = testOtherID
 
 	updated, err := repo.Update(t.Context(), changed)
 	if err != nil {
@@ -211,6 +228,7 @@ func TestAssetRepositoryUpdate(t *testing.T) {
 	}
 
 	want := changed
+	want.CreatedBy = created.CreatedBy
 	want.Version = created.Version + 1
 	want.UpdatedAt = updated.UpdatedAt
 	if !reflect.DeepEqual(updated, want) {
@@ -322,6 +340,8 @@ func TestAssetRepositoryConstraints(t *testing.T) {
 			d := strings.Repeat("a", 2001)
 			a.Description = &d
 		}, "22001"},
+		{"responsavel inexistente", func(a *domain.Asset) { a.OwnerID = uuid.New() }, "23503"},
+		{"autor inexistente", func(a *domain.Asset) { a.CreatedBy = uuid.New() }, "23503"},
 	}
 
 	for _, tt := range tests {
@@ -348,17 +368,21 @@ func TestAssetRepositoryList(t *testing.T) {
 	specs := []domain.Asset{
 		{Name: "Portal Web", Identifier: "web-01", Type: domain.AssetTypeAplicacao, Criticality: domain.CriticalityCritica},
 		{Name: "Banco Principal", Identifier: "db-01", Type: domain.AssetTypeServidor, Criticality: domain.CriticalityAlta},
-		{Name: "Firewall Borda", Identifier: "fw-01", Type: domain.AssetTypeRede, Criticality: domain.CriticalityMedia},
-		{Name: "Estacao Recepcao", Identifier: "pc-01", Type: domain.AssetTypeEstacao, Criticality: domain.CriticalityBaixa},
+		{Name: "Firewall Borda", Identifier: "fw-01", Type: domain.AssetTypeRede, Criticality: domain.CriticalityMedia, OwnerID: testOtherID},
+		{Name: "Estacao Recepcao", Identifier: "pc-01", Type: domain.AssetTypeEstacao, Criticality: domain.CriticalityBaixa, OwnerID: testOtherID},
 		{Name: "Logs 100% nuvem", Identifier: "s3_logs", Type: domain.AssetTypeNuvem, Criticality: domain.CriticalityAlta},
 		{Name: "Copia de Dados", Identifier: `bkp\dados`, Type: domain.AssetTypeServidor, Criticality: domain.CriticalityBaixa},
 	}
 	seeded := make(map[string]domain.Asset, len(specs))
 	for _, a := range specs {
+		if a.OwnerID == uuid.Nil {
+			a.OwnerID = testOwnerID
+		}
+		a.CreatedBy = testOwnerID
 		seeded[a.Identifier] = mustCreate(t, repo, a)
 	}
 	removed := mustCreate(t, repo, domain.Asset{
-		Name: "Antigo Removido", Identifier: "old-01", Type: domain.AssetTypeServidor, Criticality: domain.CriticalityAlta,
+		Name: "Antigo Removido", Identifier: "old-01", Type: domain.AssetTypeServidor, Criticality: domain.CriticalityAlta, OwnerID: testOtherID, CreatedBy: testOwnerID,
 	})
 	if err := repo.Delete(t.Context(), removed.ID); err != nil {
 		t.Fatalf("excluir: %v", err)
@@ -411,6 +435,11 @@ func TestAssetRepositoryList(t *testing.T) {
 		{"busca por sublinhado", domain.AssetFilter{Search: ptr("_")}, []string{"s3_logs"}, 1},
 		{"busca por barra invertida", domain.AssetFilter{Search: ptr(`\`)}, []string{`bkp\dados`}, 1},
 		{"busca sem resultado", domain.AssetFilter{Search: ptr("zzz")}, nil, 0},
+		{"responsavel", domain.AssetFilter{OwnerID: ptr(testOtherID)}, []string{"fw-01", "pc-01"}, 2},
+		{"responsavel e criticidade", domain.AssetFilter{
+			OwnerID: ptr(testOtherID), Criticality: ptr(domain.CriticalityBaixa),
+		}, []string{"pc-01"}, 1},
+		{"responsavel sem ativos", domain.AssetFilter{OwnerID: ptr(uuid.New())}, nil, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

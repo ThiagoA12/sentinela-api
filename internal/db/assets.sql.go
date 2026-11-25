@@ -17,29 +17,36 @@ FROM assets
 WHERE deleted_at IS NULL
     AND ($1::text IS NULL OR type = $1)
     AND ($2::text IS NULL OR criticality = $2)
-    AND ($3::text IS NULL
-        OR name ILIKE '%' || $3 || '%' ESCAPE '\'
-        OR identifier ILIKE '%' || $3 || '%' ESCAPE '\')
+    AND ($3::uuid IS NULL OR owner_id = $3)
+    AND ($4::text IS NULL
+        OR name ILIKE '%' || $4 || '%' ESCAPE '\'
+        OR identifier ILIKE '%' || $4 || '%' ESCAPE '\')
 `
 
 type CountAssetsParams struct {
 	Type        *string
 	Criticality *string
+	OwnerID     *uuid.UUID
 	Q           *string
 }
 
 func (q *Queries) CountAssets(ctx context.Context, arg CountAssetsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countAssets, arg.Type, arg.Criticality, arg.Q)
+	row := q.db.QueryRow(ctx, countAssets,
+		arg.Type,
+		arg.Criticality,
+		arg.OwnerID,
+		arg.Q,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
 const createAsset = `-- name: CreateAsset :one
-INSERT INTO assets (name, identifier, type, criticality, description)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO assets (name, identifier, type, criticality, description, owner_id, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING id, name, identifier, type, criticality, created_at,
-    description, updated_at, deleted_at, version
+    description, updated_at, deleted_at, version, owner_id, created_by
 `
 
 type CreateAssetParams struct {
@@ -48,6 +55,8 @@ type CreateAssetParams struct {
 	Type        string
 	Criticality string
 	Description *string
+	OwnerID     uuid.UUID
+	CreatedBy   uuid.UUID
 }
 
 func (q *Queries) CreateAsset(ctx context.Context, arg CreateAssetParams) (Asset, error) {
@@ -57,6 +66,8 @@ func (q *Queries) CreateAsset(ctx context.Context, arg CreateAssetParams) (Asset
 		arg.Type,
 		arg.Criticality,
 		arg.Description,
+		arg.OwnerID,
+		arg.CreatedBy,
 	)
 	var i Asset
 	err := row.Scan(
@@ -70,6 +81,8 @@ func (q *Queries) CreateAsset(ctx context.Context, arg CreateAssetParams) (Asset
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Version,
+		&i.OwnerID,
+		&i.CreatedBy,
 	)
 	return i, err
 }
@@ -92,7 +105,7 @@ func (q *Queries) DeleteAsset(ctx context.Context, id uuid.UUID) (int64, error) 
 
 const getAsset = `-- name: GetAsset :one
 SELECT id, name, identifier, type, criticality, created_at,
-    description, updated_at, deleted_at, version
+    description, updated_at, deleted_at, version, owner_id, created_by
 FROM assets
 WHERE id = $1 AND deleted_at IS NULL
 `
@@ -111,45 +124,49 @@ func (q *Queries) GetAsset(ctx context.Context, id uuid.UUID) (Asset, error) {
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Version,
+		&i.OwnerID,
+		&i.CreatedBy,
 	)
 	return i, err
 }
 
 const listAssets = `-- name: ListAssets :many
 SELECT id, name, identifier, type, criticality, created_at,
-    description, updated_at, deleted_at, version
+    description, updated_at, deleted_at, version, owner_id, created_by
 FROM assets
 WHERE deleted_at IS NULL
     AND ($1::text IS NULL OR type = $1)
     AND ($2::text IS NULL OR criticality = $2)
-    AND ($3::text IS NULL
-        OR name ILIKE '%' || $3 || '%' ESCAPE '\'
-        OR identifier ILIKE '%' || $3 || '%' ESCAPE '\')
+    AND ($3::uuid IS NULL OR owner_id = $3)
+    AND ($4::text IS NULL
+        OR name ILIKE '%' || $4 || '%' ESCAPE '\'
+        OR identifier ILIKE '%' || $4 || '%' ESCAPE '\')
 ORDER BY
-    CASE WHEN $4::text = 'name' THEN name END,
-    CASE WHEN $4::text = '-name' THEN name END DESC,
-    CASE WHEN $4::text = 'identifier' THEN identifier END,
-    CASE WHEN $4::text = '-identifier' THEN identifier END DESC,
-    CASE WHEN $4::text = 'type' THEN type END,
-    CASE WHEN $4::text = '-type' THEN type END DESC,
-    CASE WHEN $4::text = 'criticality' THEN
+    CASE WHEN $5::text = 'name' THEN name END,
+    CASE WHEN $5::text = '-name' THEN name END DESC,
+    CASE WHEN $5::text = 'identifier' THEN identifier END,
+    CASE WHEN $5::text = '-identifier' THEN identifier END DESC,
+    CASE WHEN $5::text = 'type' THEN type END,
+    CASE WHEN $5::text = '-type' THEN type END DESC,
+    CASE WHEN $5::text = 'criticality' THEN
         CASE criticality WHEN 'baixa' THEN 1 WHEN 'media' THEN 2 WHEN 'alta' THEN 3 WHEN 'critica' THEN 4 END
     END,
-    CASE WHEN $4::text ='-criticality' THEN
+    CASE WHEN $5::text ='-criticality' THEN
         CASE criticality WHEN 'baixa' THEN 1 WHEN 'media' THEN 2 WHEN 'alta' THEN 3 WHEN 'critica' THEN 4 END
     END DESC,
-    CASE WHEN $4::text = 'created_at' THEN created_at END,
-    CASE WHEN $4::text = '-created_at' THEN created_at END DESC,
-    CASE WHEN $4::text = 'updated_at' THEN updated_at END,
-    CASE WHEN $4::text = '-updated_at' THEN updated_at END DESC,
+    CASE WHEN $5::text = 'created_at' THEN created_at END,
+    CASE WHEN $5::text = '-created_at' THEN created_at END DESC,
+    CASE WHEN $5::text = 'updated_at' THEN updated_at END,
+    CASE WHEN $5::text = '-updated_at' THEN updated_at END DESC,
     id
-LIMIT $6::int
-OFFSET $5::int
+LIMIT $7::int
+OFFSET $6::int
 `
 
 type ListAssetsParams struct {
 	Type        *string
 	Criticality *string
+	OwnerID     *uuid.UUID
 	Q           *string
 	Sort        string
 	PageOffset  int32
@@ -160,6 +177,7 @@ func (q *Queries) ListAssets(ctx context.Context, arg ListAssetsParams) ([]Asset
 	rows, err := q.db.Query(ctx, listAssets,
 		arg.Type,
 		arg.Criticality,
+		arg.OwnerID,
 		arg.Q,
 		arg.Sort,
 		arg.PageOffset,
@@ -183,6 +201,8 @@ func (q *Queries) ListAssets(ctx context.Context, arg ListAssetsParams) ([]Asset
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.Version,
+			&i.OwnerID,
+			&i.CreatedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -201,11 +221,12 @@ SET name = $3,
     type = $5,
     criticality = $6,
     description = $7,
+    owner_id = $8,
     version = version + 1,
     updated_at = now()
 WHERE id = $1 AND version = $2 AND deleted_at IS NULL
 RETURNING id, name, identifier, type, criticality, created_at,
-    description, updated_at, deleted_at, version
+    description, updated_at, deleted_at, version, owner_id, created_by
 `
 
 type UpdateAssetParams struct {
@@ -216,6 +237,7 @@ type UpdateAssetParams struct {
 	Type        string
 	Criticality string
 	Description *string
+	OwnerID     uuid.UUID
 }
 
 func (q *Queries) UpdateAsset(ctx context.Context, arg UpdateAssetParams) (Asset, error) {
@@ -227,6 +249,7 @@ func (q *Queries) UpdateAsset(ctx context.Context, arg UpdateAssetParams) (Asset
 		arg.Type,
 		arg.Criticality,
 		arg.Description,
+		arg.OwnerID,
 	)
 	var i Asset
 	err := row.Scan(
@@ -240,6 +263,8 @@ func (q *Queries) UpdateAsset(ctx context.Context, arg UpdateAssetParams) (Asset
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Version,
+		&i.OwnerID,
+		&i.CreatedBy,
 	)
 	return i, err
 }

@@ -30,6 +30,13 @@ const (
 const (
 	reasonType        = "deve ser: servidor, aplicacao, rede, estacao ou nuvem"
 	reasonCriticality = "deve ser: baixa, media, alta ou critica"
+	reasonOwner       = "deve ser o id de um admin ou analista ativo"
+)
+
+var (
+	errOwnerOnlyAdmin = apperror.Forbidden("so o admin define o responsavel")
+	errNotEditable    = apperror.Forbidden("so o responsavel ou um admin altera este ativo")
+	errStaleVersion   = apperror.Conflict("ativo alterado por outra requisicao; busque a versao atual e tente de novo", nil)
 )
 
 var assetSortFields = []string{"name", "identifier", "type", "criticality", "created_at", "updated_at"}
@@ -42,17 +49,23 @@ type assetStore interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 
-type AssetService struct {
-	store assetStore
+type ownerStore interface {
+	GetByID(ctx context.Context, id uuid.UUID) (domain.User, error)
 }
 
-func NewAssetService(store assetStore) *AssetService {
-	return &AssetService{store: store}
+type AssetService struct {
+	store  assetStore
+	owners ownerStore
+}
+
+func NewAssetService(store assetStore, owners ownerStore) *AssetService {
+	return &AssetService{store: store, owners: owners}
 }
 
 type ListAssetsInput struct {
 	Type        *string
 	Criticality *string
+	OwnerID     *uuid.UUID
 	Search      *string
 	Sort        *string
 	Page        *int
@@ -113,6 +126,8 @@ func newAssetFilter(in ListAssetsInput) (domain.AssetFilter, []apperror.FieldErr
 		f.Criticality = &c
 	}
 
+	f.OwnerID = in.OwnerID
+
 	if in.Search != nil {
 		switch q := strings.TrimSpace(*in.Search); {
 		case utf8.RuneCountInString(q) > maxSearchLen:
@@ -141,13 +156,31 @@ type CreateAssetInput struct {
 	Type        string
 	Criticality string
 	Description *string
+	OwnerID     *string
 }
 
-func (s *AssetService) Create(ctx context.Context, in CreateAssetInput) (domain.Asset, error) {
+func (s *AssetService) Create(ctx context.Context, actor domain.User, in CreateAssetInput) (domain.Asset, error) {
+	if in.OwnerID != nil && actor.Role != domain.RoleAdmin {
+		return domain.Asset{}, errOwnerOnlyAdmin
+	}
+
 	a, fields := newAsset(in)
+	a.OwnerID = actor.ID
+	if in.OwnerID != nil {
+		owner, ok, err := s.owner(ctx, *in.OwnerID)
+		if err != nil {
+			return domain.Asset{}, err
+		}
+		if !ok {
+			fields = append(fields, apperror.FieldError{Field: "owner_id", Reason: reasonOwner})
+		}
+		a.OwnerID = owner
+	}
 	if len(fields) > 0 {
 		return domain.Asset{}, apperror.Validation(fields)
 	}
+
+	a.CreatedBy = actor.ID
 	return s.store.Create(ctx, a)
 }
 
@@ -161,10 +194,14 @@ type UpdateAssetInput struct {
 	Type        *string
 	Criticality *string
 	Description *string
+	OwnerID     *string
 	Version     *int32
 }
 
-func (s *AssetService) Update(ctx context.Context, id uuid.UUID, in UpdateAssetInput) (domain.Asset, error) {
+func (s *AssetService) Update(ctx context.Context, actor domain.User, id uuid.UUID, in UpdateAssetInput) (domain.Asset, error) {
+	if in.OwnerID != nil && actor.Role != domain.RoleAdmin {
+		return domain.Asset{}, errOwnerOnlyAdmin
+	}
 	if in.Version == nil {
 		return domain.Asset{}, apperror.Validation([]apperror.FieldError{{Field: "version", Reason: "obrigatorio"}})
 	}
@@ -173,14 +210,48 @@ func (s *AssetService) Update(ctx context.Context, id uuid.UUID, in UpdateAssetI
 	if err != nil {
 		return domain.Asset{}, err
 	}
+	if !current.EditableBy(actor) {
+		return domain.Asset{}, errNotEditable
+	}
+	if current.Version != *in.Version {
+		return domain.Asset{}, errStaleVersion
+	}
 
 	a, fields := newAsset(mergeAsset(current, in))
+	a.OwnerID = current.OwnerID
+	if in.OwnerID != nil {
+		owner, ok, err := s.owner(ctx, *in.OwnerID)
+		if err != nil {
+			return domain.Asset{}, err
+		}
+		if !ok {
+			fields = append(fields, apperror.FieldError{Field: "owner_id", Reason: reasonOwner})
+		}
+		a.OwnerID = owner
+	}
 	if len(fields) > 0 {
 		return domain.Asset{}, apperror.Validation(fields)
 	}
+
 	a.ID = id
 	a.Version = *in.Version
+	a.CreatedBy = current.CreatedBy
 	return s.store.Update(ctx, a)
+}
+
+func (s *AssetService) owner(ctx context.Context, raw string) (uuid.UUID, bool, error) {
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil, false, nil
+	}
+	u, err := s.owners.GetByID(ctx, id)
+	if apperror.KindOf(err) == apperror.KindNotFound {
+		return uuid.Nil, false, nil
+	}
+	if err != nil {
+		return uuid.Nil, false, err
+	}
+	return id, u.CanOwnAssets(), nil
 }
 
 func (s *AssetService) Delete(ctx context.Context, id uuid.UUID) error {

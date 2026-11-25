@@ -106,3 +106,15 @@ func queryInt(values url.Values, name string) (*int, error) {
 	}
 	return &n, nil
 }
+
+func queryUUID(values url.Values, name string) (*uuid.UUID, error) {
+	s := queryString(values, name)
+	if s == nil {
+		return nil, nil
+	}
+	id, err := uuid.Parse(*s)
+	if err != nil {
+		return nil, apperror.Invalid("parametro " + name + " deve ser um uuid")
+	}
+	return &id, nil
+}

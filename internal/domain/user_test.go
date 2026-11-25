@@ -29,3 +29,26 @@ func TestRoleValid(t *testing.T) {
 		})
 	}
 }
+
+func TestUserCanOwnAssets(t *testing.T) {
+	tests := []struct {
+		name string
+		u    domain.User
+		want bool
+	}{
+		{"admin ativo", domain.User{Role: domain.RoleAdmin, Active: true}, true},
+		{"analista ativo", domain.User{Role: domain.RoleAnalista, Active: true}, true},
+		{"leitor ativo", domain.User{Role: domain.RoleLeitor, Active: true}, false},
+		{"admin desativado", domain.User{Role: domain.RoleAdmin}, false},
+		{"analista desativado", domain.User{Role: domain.RoleAnalista}, false},
+		{"papel desconhecido", domain.User{Role: "root", Active: true}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.u.CanOwnAssets(); got != tt.want {
+				t.Errorf("CanOwnAssets = %v, esperado %v", got, tt.want)
+			}
+		})
+	}
+}

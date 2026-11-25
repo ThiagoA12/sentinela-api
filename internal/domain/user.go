@@ -35,3 +35,7 @@ type User struct {
 	UpdatedAt    time.Time
 	Version      int32
 }
+
+func (u User) CanOwnAssets() bool {
+	return u.Active && (u.Role == RoleAdmin || u.Role == RoleAnalista)
+}

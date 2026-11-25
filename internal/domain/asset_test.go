@@ -3,6 +3,8 @@ package domain_test
 import (
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/ThiagoA12/sentinela-api/internal/domain"
 )
 
@@ -53,6 +55,35 @@ func TestCriticalityValid(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.in.Valid(); got != tt.want {
 				t.Errorf("Criticality(%q).Valid() = %v, esperado %v", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAssetEditableBy(t *testing.T) {
+	dono := uuid.MustParse("01a1cab1-9c80-7a10-8000-000000000001")
+	outro := uuid.MustParse("01a1cab1-9c80-7a10-8000-000000000002")
+	ativo := domain.Asset{OwnerID: dono}
+
+	tests := []struct {
+		name string
+		u    domain.User
+		want bool
+	}{
+		{"admin responsavel", domain.User{ID: dono, Role: domain.RoleAdmin}, true},
+		{"admin de ativo alheio", domain.User{ID: outro, Role: domain.RoleAdmin}, true},
+		{"analista responsavel", domain.User{ID: dono, Role: domain.RoleAnalista}, true},
+		{"analista de ativo alheio", domain.User{ID: outro, Role: domain.RoleAnalista}, false},
+		{"leitor responsavel", domain.User{ID: dono, Role: domain.RoleLeitor}, false},
+		{"leitor de ativo alheio", domain.User{ID: outro, Role: domain.RoleLeitor}, false},
+		{"papel desconhecido responsavel", domain.User{ID: dono, Role: "root"}, false},
+		{"sem papel responsavel", domain.User{ID: dono}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ativo.EditableBy(tt.u); got != tt.want {
+				t.Errorf("EditableBy = %v, esperado %v", got, tt.want)
 			}
 		})
 	}
