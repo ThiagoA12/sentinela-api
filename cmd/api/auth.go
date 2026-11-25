@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/ThiagoA12/sentinela-api/internal/auth"
 )
 
@@ -58,13 +56,6 @@ func handleLogin(svc authService) http.HandlerFunc {
 	}
 }
 
-type meResponse struct {
-	ID    uuid.UUID `json:"id"`
-	Name  string    `json:"name"`
-	Email string    `json:"email"`
-	Role  string    `json:"role"`
-}
-
 func handleMe(w http.ResponseWriter, r *http.Request) {
 	u, ok := userFrom(r.Context())
 	if !ok {
@@ -74,12 +65,7 @@ func handleMe(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(meResponse{
-		ID:    u.ID,
-		Name:  u.Name,
-		Email: u.Email,
-		Role:  string(u.Role),
-	}); err != nil {
+	if err := json.NewEncoder(w).Encode(toUsuarioResponse(u)); err != nil {
 		log.Printf("escrever resposta: %v", err)
 	}
 }

@@ -48,7 +48,7 @@ func TestNewRouter(t *testing.T) {
 
 func TestAPIRoutesPublicas(t *testing.T) {
 	var got []string
-	for _, rt := range apiRoutes(nil, nil, nil) {
+	for _, rt := range apiRoutes(nil, nil, nil, nil) {
 		if rt.public {
 			got = append(got, rt.pattern)
 		}
@@ -61,7 +61,7 @@ func TestAPIRoutesPublicas(t *testing.T) {
 }
 
 func TestAPIRoutesExigemToken(t *testing.T) {
-	routes := apiRoutes(nil, nil, nil)
+	routes := apiRoutes(nil, nil, nil, nil)
 
 	for _, rt := range routes {
 		if rt.public {

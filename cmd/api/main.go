@@ -72,7 +72,7 @@ func run() error {
 	assetSvc := service.NewAssetService(assetRepo)
 	authSvc := service.NewAuthService(userRepo, tokens, time.Now)
 
-	mux := newRouter(authSvc, logger, apiRoutes(pool, authSvc, assetSvc))
+	mux := newRouter(authSvc, logger, apiRoutes(pool, authSvc, assetSvc, userSvc))
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,

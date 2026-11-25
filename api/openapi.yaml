@@ -19,6 +19,8 @@ tags:
     description: login e tokens
   - name: ativos
     description: ativos de TI
+  - name: usuarios
+    description: contas de acesso
 
 paths:
   /healthz:
@@ -374,6 +376,47 @@ paths:
         "500":
           $ref: "#/components/responses/Internal"
 
+  /api/v1/usuarios:
+    post:
+      tags: [usuarios]
+      operationId: criaUsuario
+      summary: cria um usuario
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CriarUsuario"
+      responses:
+        "201":
+          description: usuario criado
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Usuario"
+        "400":
+          $ref: "#/components/responses/Invalid"
+          description: JSON malformado, corpo vazio, campo desconhecido ou com tipo errado
+        "401":
+          $ref: "#/components/responses/TokenRejected"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+          description: so admin cria usuarios
+        "409":
+          $ref: "#/components/responses/Conflict"
+          description: ja existe um usuario com este email, sem diferenciar maiusculas
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "422":
+          $ref: "#/components/responses/Validation"
+        "500":
+          $ref: "#/components/responses/Internal"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -661,6 +704,32 @@ components:
           name: Administrador
           email: admin@sentinela.test
           role: admin
+
+    CriarUsuario:
+      type: object
+      additionalProperties: false
+      required: [name, email, password, role]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        email:
+          type: string
+          maxLength: 254
+          pattern: "^[^@]+@[^@]+$"
+        password:
+          type: string
+          format: password
+          minLength: 15
+          maxLength: 128
+        role:
+          $ref: "#/components/schemas/Papel"
+      examples:
+        - name: Ana Analista
+          email: ana@sentinela.test
+          password: uma-senha-longa-de-exemplo
+          role: analista
 
     Problema:
       type: object

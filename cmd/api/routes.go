@@ -22,12 +22,13 @@ var (
 	adminRoles = []domain.Role{domain.RoleAdmin}
 )
 
-func apiRoutes(pool *pgxpool.Pool, authSvc authService, assetSvc assetService) []route {
+func apiRoutes(pool *pgxpool.Pool, authSvc authService, assetSvc assetService, userSvc userService) []route {
 	return []route{
 		{pattern: "GET /healthz", public: true, handler: http.HandlerFunc(handleHealthz)},
 		{pattern: "GET /readyz", public: true, handler: handleReadyz(pool)},
 		{pattern: "POST /api/v1/auth/login", public: true, handler: handleLogin(authSvc)},
 		{pattern: "GET /api/v1/me", roles: allRoles, handler: http.HandlerFunc(handleMe)},
+		{pattern: "POST /api/v1/usuarios", roles: adminRoles, handler: handleCriaUsuario(userSvc)},
 		{pattern: "GET /api/v1/ativos", roles: allRoles, handler: handleListaAtivos(assetSvc)},
 		{pattern: "POST /api/v1/ativos", roles: writeRoles, handler: handleCriaAtivo(assetSvc)},
 		{pattern: "GET /api/v1/ativos/{id}", roles: allRoles, handler: handleBuscaAtivo(assetSvc)},
