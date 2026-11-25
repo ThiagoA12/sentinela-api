@@ -72,15 +72,7 @@ func run() error {
 	assetSvc := service.NewAssetService(assetRepo)
 	authSvc := service.NewAuthService(userRepo, tokens, time.Now)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", handleHealthz)
-	mux.HandleFunc("GET /readyz", handleReadyz(pool))
-	mux.HandleFunc("POST /api/v1/auth/login", handleLogin(authSvc))
-	mux.HandleFunc("GET /api/v1/ativos", handleListaAtivos(assetSvc))
-	mux.HandleFunc("POST /api/v1/ativos", handleCriaAtivo(assetSvc))
-	mux.HandleFunc("GET /api/v1/ativos/{id}", handleBuscaAtivo(assetSvc))
-	mux.HandleFunc("PATCH /api/v1/ativos/{id}", handleAtualizaAtivo(assetSvc))
-	mux.HandleFunc("DELETE /api/v1/ativos/{id}", handleExcluiAtivo(assetSvc))
+	mux := newRouter(authSvc, logger, apiRoutes(pool, authSvc, assetSvc))
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,

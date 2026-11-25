@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/ThiagoA12/sentinela-api/internal/apperror"
@@ -144,6 +145,27 @@ func TestUserRepositoryGetByEmail(t *testing.T) {
 	_, err = repo.GetByEmail(t.Context(), "outra@exemplo.com")
 	if apperror.KindOf(err) != apperror.KindNotFound {
 		t.Errorf("e-mail inexistente: quero KindNotFound, veio %v", err)
+	}
+}
+
+func TestUserRepositoryGetByID(t *testing.T) {
+	repo := setupUsers(t)
+	created, err := repo.Create(t.Context(), sampleUser("ana@exemplo.com"))
+	if err != nil {
+		t.Fatalf("criar: %v", err)
+	}
+
+	got, err := repo.GetByID(t.Context(), created.ID)
+	if err != nil {
+		t.Fatalf("buscar: %v", err)
+	}
+	if !reflect.DeepEqual(got, created) {
+		t.Errorf("GetByID = %+v\nquero %+v", got, created)
+	}
+
+	_, err = repo.GetByID(t.Context(), uuid.New())
+	if apperror.KindOf(err) != apperror.KindNotFound {
+		t.Errorf("id inexistente: quero KindNotFound, veio %v", err)
 	}
 }
 

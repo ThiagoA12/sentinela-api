@@ -27,6 +27,7 @@ func TestWriteProblem(t *testing.T) {
 		{"validacao", apperror.Validation([]apperror.FieldError{{Field: "name", Reason: "obrigatório"}}), 422, "campo(s) invalidos", 1},
 		{"metodo nao permitido", apperror.MethodNotAllowed("metodo nao permitido nesta rota"), 405, "metodo nao permitido nesta rota", 0},
 		{"nao autenticado", apperror.Unauthorized("credenciais invalidas"), 401, "credenciais invalidas", 0},
+		{"proibido", apperror.Forbidden("sem permissao para esta operacao"), 403, "sem permissao para esta operacao", 0},
 	}
 
 	for _, tt := range tests {

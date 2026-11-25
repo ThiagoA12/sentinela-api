@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -17,10 +18,14 @@ const (
 	lockDuration     = 15 * time.Minute
 )
 
-var errInvalidCredentials = apperror.Unauthorized("credenciais invalidas")
+var (
+	errInvalidCredentials = apperror.Unauthorized("credenciais invalidas")
+	errTokenRejected      = apperror.Unauthorized("token ausente, invalido ou expirado")
+)
 
 type authStore interface {
 	GetByEmail(ctx context.Context, email string) (domain.User, error)
+	GetByID(ctx context.Context, id uuid.UUID) (domain.User, error)
 	RecordLoginFailure(ctx context.Context, id uuid.UUID, maxFailures int16, lockedUntil time.Time) error
 	ResetLoginFailures(ctx context.Context, id uuid.UUID) error
 }
@@ -73,4 +78,26 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 		}
 	}
 	return s.tokens.Issue(u.ID, now), nil
+}
+
+func (s *AuthService) Authenticate(ctx context.Context, token string) (domain.User, error) {
+	if token == "" {
+		return domain.User{}, errTokenRejected
+	}
+	id, err := s.tokens.Verify(token, s.now())
+	if err != nil {
+		return domain.User{}, fmt.Errorf("%w: %w", errTokenRejected, err)
+	}
+
+	u, err := s.store.GetByID(ctx, id)
+	if apperror.KindOf(err) == apperror.KindNotFound {
+		return domain.User{}, errTokenRejected
+	}
+	if err != nil {
+		return domain.User{}, err
+	}
+	if !u.Active {
+		return domain.User{}, errTokenRejected
+	}
+	return u, nil
 }

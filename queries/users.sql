@@ -25,3 +25,9 @@ WHERE id = sqlc.arg('id');
 UPDATE users
 SET failed_logins = 0, locked_until = NULL
 WHERE id = $1;
+
+-- name: GetUserByID :one
+SELECT id, name, email, password_hash, role, active, failed_logins,
+    locked_until, created_at, updated_at, version
+FROM users
+WHERE id = $1;

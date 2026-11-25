@@ -3,6 +3,8 @@ package service_test
 import (
 	"context"
 	"errors"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,12 +39,24 @@ type fakeAuthStore struct {
 	failErr  error
 	resetErr error
 	gotEmail string
+	gotID    uuid.UUID
 	failures []loginFailure
 	resets   int
 }
 
 func (f *fakeAuthStore) GetByEmail(ctx context.Context, email string) (domain.User, error) {
 	f.gotEmail = email
+	if f.getErr != nil {
+		return domain.User{}, f.getErr
+	}
+	if f.user == nil {
+		return domain.User{}, apperror.NotFound("usuario nao encontrado")
+	}
+	return *f.user, nil
+}
+
+func (f *fakeAuthStore) GetByID(ctx context.Context, id uuid.UUID) (domain.User, error) {
+	f.gotID = id
 	if f.getErr != nil {
 		return domain.User{}, f.getErr
 	}
@@ -245,5 +259,96 @@ func TestLoginTempoParecido(t *testing.T) {
 				t.Errorf("levou %v, a senha errada levou %v: o tempo denuncia a diferenca", d, wrongPassword)
 			}
 		})
+	}
+}
+
+func TestAuthenticate(t *testing.T) {
+	future := loginNow.Add(time.Second)
+
+	tests := []struct {
+		name   string
+		change func(u *domain.User)
+	}{
+		{"ativo", nil},
+		{"bloqueado continua entrando", func(u *domain.User) { u.LockedUntil = &future }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeAuthStore{user: activeUser()}
+			if tt.change != nil {
+				tt.change(store.user)
+			}
+			svc, tokens := newAuthService(t, store)
+
+			got, err := svc.Authenticate(t.Context(), tokens.Issue(loginUserID, loginNow.Add(-time.Minute)))
+			if err != nil {
+				t.Fatalf("Authenticate: %v", err)
+			}
+			if !reflect.DeepEqual(got, *store.user) {
+				t.Errorf("Authenticate = %+v\nquero %+v", got, *store.user)
+			}
+			if store.gotID != loginUserID {
+				t.Errorf("id buscado = %v, quero %v", store.gotID, loginUserID)
+			}
+		})
+	}
+}
+
+func TestAuthenticateRecusado(t *testing.T) {
+	otherKey, err := auth.NewTokenManager(strings.Repeat("0", 64))
+	if err != nil {
+		t.Fatalf("outra chave: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		token       func(tokens *auth.TokenManager) string
+		change      func(store *fakeAuthStore)
+		wantInvalid bool
+	}{
+		{"sem token", func(*auth.TokenManager) string { return "" }, nil, false},
+		{"token malformado", func(*auth.TokenManager) string { return "abc" }, nil, true},
+		{"token de outra chave", func(*auth.TokenManager) string { return otherKey.Issue(loginUserID, loginNow) }, nil, true},
+		{"token expirado", func(tm *auth.TokenManager) string { return tm.Issue(loginUserID, loginNow.Add(-auth.AccessTokenTTL)) }, nil, false},
+		{"usuario inexistente", nil, func(s *fakeAuthStore) { s.user = nil }, false},
+		{"usuario desativado", nil, func(s *fakeAuthStore) { s.user.Active = false }, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeAuthStore{user: activeUser()}
+			if tt.change != nil {
+				tt.change(store)
+			}
+			svc, tokens := newAuthService(t, store)
+			token := tokens.Issue(loginUserID, loginNow)
+			if tt.token != nil {
+				token = tt.token(tokens)
+			}
+
+			got, err := svc.Authenticate(t.Context(), token)
+			if got != (domain.User{}) {
+				t.Errorf("recusa devolveu usuario %+v", got)
+			}
+			var appErr *apperror.Error
+			if !errors.As(err, &appErr) || appErr.Kind != apperror.KindUnauthorized || appErr.Detail != "token ausente, invalido ou expirado" {
+				t.Fatalf("quero Unauthorized \"token ausente, invalido ou expirado\", veio %v", err)
+			}
+			if errors.Is(err, auth.ErrInvalidToken) != tt.wantInvalid {
+				t.Errorf("errors.Is(err, ErrInvalidToken) = %v, quero %v (err: %v)", !tt.wantInvalid, tt.wantInvalid, err)
+			}
+		})
+	}
+}
+
+func TestAuthenticateErroDoStore(t *testing.T) {
+	dbErr := errors.New("banco fora do ar")
+	store := &fakeAuthStore{getErr: dbErr}
+	svc, tokens := newAuthService(t, store)
+
+	got, err := svc.Authenticate(t.Context(), tokens.Issue(loginUserID, loginNow))
+	if got != (domain.User{}) || !errors.Is(err, dbErr) || apperror.KindOf(err) != apperror.KindInternal {
+		t.Errorf("Authenticate = %+v, %v; quero usuario vazio e o erro do banco", got, err)
 	}
 }

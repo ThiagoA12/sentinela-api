@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,6 +14,10 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
+	"github.com/ThiagoA12/sentinela-api/internal/apperror"
+	"github.com/ThiagoA12/sentinela-api/internal/auth"
+	"github.com/ThiagoA12/sentinela-api/internal/domain"
 )
 
 func TestWithRequestID(t *testing.T) {
@@ -226,5 +232,160 @@ func TestWithRouteProblemsRotaExistente(t *testing.T) {
 
 	if rec.Code != http.StatusOK || rec.Body.String() != "abc" {
 		t.Fatalf("status = %d, corpo = %q; quer 200 e \"abc\"", rec.Code, rec.Body.String())
+	}
+}
+
+type fakeAuthenticator struct {
+	user     domain.User
+	err      error
+	called   bool
+	gotToken string
+}
+
+func (f *fakeAuthenticator) Authenticate(ctx context.Context, token string) (domain.User, error) {
+	f.called = true
+	f.gotToken = token
+	return f.user, f.err
+}
+
+var (
+	errTokenDeTeste = apperror.Unauthorized("token ausente, invalido ou expirado")
+	writerRoles     = []domain.Role{domain.RoleAdmin, domain.RoleAnalista}
+)
+
+type authResult struct {
+	rec    *httptest.ResponseRecorder
+	log    string
+	called bool
+	user   domain.User
+}
+
+func autentica(t *testing.T, authn *fakeAuthenticator, roles []domain.Role, authorization string) authResult {
+	t.Helper()
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+
+	var res authResult
+	mux := http.NewServeMux()
+	mux.Handle("POST /api/v1/ativos", withAuth(authn, logger, roles, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		res.called = true
+		res.user, _ = userFrom(r.Context())
+		w.WriteHeader(http.StatusNoContent)
+	})))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/ativos", nil)
+	if authorization != "" {
+		req.Header.Set("Authorization", authorization)
+	}
+	res.rec = httptest.NewRecorder()
+	withRequestID(mux).ServeHTTP(res.rec, req)
+	res.log = buf.String()
+	return res
+}
+
+func TestWithAuth(t *testing.T) {
+	ana := domain.User{ID: uuid.New(), Name: "Ana", Role: domain.RoleAnalista, Active: true}
+
+	tests := []struct {
+		name          string
+		authorization string
+		wantToken     string
+	}{
+		{"bearer", "Bearer abc.def.ghi", "abc.def.ghi"},
+		{"bearer em minusculas", "bearer abc.def.ghi", "abc.def.ghi"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authn := &fakeAuthenticator{user: ana}
+			res := autentica(t, authn, writerRoles, tt.authorization)
+
+			if res.rec.Code != http.StatusNoContent || !res.called {
+				t.Fatalf("status = %d, handler chamado = %v; quero 204 e chamado", res.rec.Code, res.called)
+			}
+			if authn.gotToken != tt.wantToken {
+				t.Errorf("token = %q, quero %q", authn.gotToken, tt.wantToken)
+			}
+			if res.user != ana {
+				t.Errorf("usuario no context = %+v, quero %+v", res.user, ana)
+			}
+			if res.log != "" {
+				t.Errorf("log inesperado: %s", res.log)
+			}
+		})
+	}
+}
+
+func TestWithAuthRecusa(t *testing.T) {
+	admin := domain.User{ID: uuid.New(), Role: domain.RoleAdmin, Active: true}
+	leitor := domain.User{ID: uuid.New(), Role: domain.RoleLeitor, Active: true}
+
+	tests := []struct {
+		name          string
+		authorization string
+		authn         *fakeAuthenticator
+		roles         []domain.Role
+		wantToken     string
+		wantStatus    int
+		wantSecurity  bool
+	}{
+		{"sem cabecalho", "", &fakeAuthenticator{err: errTokenDeTeste}, writerRoles, "", 401, false},
+		{"outro esquema", "Basic YW5hOnNlbmhh", &fakeAuthenticator{err: errTokenDeTeste}, writerRoles, "", 401, false},
+		{"bearer sem token", "Bearer ", &fakeAuthenticator{err: errTokenDeTeste}, writerRoles, "", 401, false},
+		{"token forjado", "Bearer forjado", &fakeAuthenticator{err: fmt.Errorf("%w: %w", errTokenDeTeste, auth.ErrInvalidToken)}, writerRoles, "forjado", 401, true},
+		{"token expirado", "Bearer vencido", &fakeAuthenticator{err: fmt.Errorf("%w: %w", errTokenDeTeste, auth.ErrExpiredToken)}, writerRoles, "vencido", 401, false},
+		{"papel sem permissao", "Bearer bom", &fakeAuthenticator{user: leitor}, writerRoles, "bom", 403, false},
+		{"rota sem papel", "Bearer bom", &fakeAuthenticator{user: admin}, nil, "bom", 403, false},
+		{"erro do banco", "Bearer bom", &fakeAuthenticator{err: errors.New("banco fora do ar")}, writerRoles, "bom", 500, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := autentica(t, tt.authn, tt.roles, tt.authorization)
+
+			if res.rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, quero %d; corpo: %s", res.rec.Code, tt.wantStatus, res.rec.Body.String())
+			}
+			if res.called {
+				t.Error("handler chamado numa recusa")
+			}
+			if tt.authn.gotToken != tt.wantToken {
+				t.Errorf("token = %q, quero %q", tt.authn.gotToken, tt.wantToken)
+			}
+			if strings.Contains(res.log, `"security":true`) != tt.wantSecurity {
+				t.Errorf("evento de seguranca no log = %v, quero %v: %s", !tt.wantSecurity, tt.wantSecurity, res.log)
+			}
+			if tt.wantToken != "" && strings.Contains(res.log, tt.wantToken) {
+				t.Errorf("log com o token: %s", res.log)
+			}
+		})
+	}
+}
+
+type securityEntry struct {
+	Level     string `json:"level"`
+	Msg       string `json:"msg"`
+	Security  bool   `json:"security"`
+	RequestID string `json:"request_id"`
+	Route     string `json:"route"`
+}
+
+func TestWithAuthEventoDeSeguranca(t *testing.T) {
+	authn := &fakeAuthenticator{err: fmt.Errorf("%w: %w", errTokenDeTeste, auth.ErrInvalidToken)}
+	res := autentica(t, authn, writerRoles, "Bearer forjado")
+
+	var e securityEntry
+	if err := json.Unmarshal([]byte(res.log), &e); err != nil {
+		t.Fatalf("log nao e uma linha JSON: %v (%s)", err, res.log)
+	}
+	want := securityEntry{
+		Level:     "WARN",
+		Msg:       "token invalido",
+		Security:  true,
+		RequestID: res.rec.Header().Get("X-Request-ID"),
+		Route:     "POST /api/v1/ativos",
+	}
+	if e != want {
+		t.Errorf("log = %+v\nquero %+v", e, want)
 	}
 }

@@ -26,6 +26,7 @@ func TestKindOf(t *testing.T) {
 		{"midia nao suportada", apperror.UnsupportedMedia("Content-Type deve ser application/json"), apperror.KindUnsupportedMedia},
 		{"metodo nao permitido", apperror.MethodNotAllowed("metodo nao permitido nesta rota"), apperror.KindMethodNotAllowed},
 		{"nao autenticado", apperror.Unauthorized("credenciais invalidas"), apperror.KindUnauthorized},
+		{"proibido", apperror.Forbidden("sem permissao para esta operacao"), apperror.KindForbidden},
 	}
 
 	for _, tt := range tests {

@@ -42,6 +42,8 @@ func statusOf(k apperror.Kind) int {
 		return http.StatusMethodNotAllowed
 	case apperror.KindUnauthorized:
 		return http.StatusUnauthorized
+	case apperror.KindForbidden:
+		return http.StatusForbidden
 	default:
 		return http.StatusInternalServerError
 	}

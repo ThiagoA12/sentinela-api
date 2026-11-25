@@ -14,6 +14,7 @@ const (
 	KindUnsupportedMedia
 	KindMethodNotAllowed
 	KindUnauthorized
+	KindForbidden
 )
 
 type FieldError struct {
@@ -69,6 +70,10 @@ func MethodNotAllowed(detail string) *Error {
 
 func Unauthorized(detail string) *Error {
 	return &Error{Kind: KindUnauthorized, Detail: detail}
+}
+
+func Forbidden(detail string) *Error {
+	return &Error{Kind: KindForbidden, Detail: detail}
 }
 
 func KindOf(err error) Kind {

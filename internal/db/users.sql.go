@@ -87,6 +87,32 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 	return i, err
 }
 
+const getUserByID = `-- name: GetUserByID :one
+SELECT id, name, email, password_hash, role, active, failed_logins,
+    locked_until, created_at, updated_at, version
+FROM users
+WHERE id = $1
+`
+
+func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByID, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.Active,
+		&i.FailedLogins,
+		&i.LockedUntil,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+	)
+	return i, err
+}
+
 const recordLoginFailure = `-- name: RecordLoginFailure :exec
 UPDATE users
 SET failed_logins = CASE WHEN failed_logins + 1 >= $1::smallint

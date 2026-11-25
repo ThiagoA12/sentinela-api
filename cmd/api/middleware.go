@@ -2,20 +2,28 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/ThiagoA12/sentinela-api/internal/apperror"
+	"github.com/ThiagoA12/sentinela-api/internal/auth"
+	"github.com/ThiagoA12/sentinela-api/internal/domain"
 )
 
 type ctxKey int
 
-const requestIDKey ctxKey = iota
+const (
+	requestIDKey ctxKey = iota
+	userKey
+)
 
 func withRequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -120,4 +128,47 @@ func withRouteProblems(mux *http.ServeMux) http.Handler {
 		}
 		writeProblem(w, r, apperror.NotFound("rota nao encontrada"))
 	})
+}
+
+type authenticator interface {
+	Authenticate(ctx context.Context, token string) (domain.User, error)
+}
+
+func bearerToken(r *http.Request) string {
+	scheme, token, ok := strings.Cut(r.Header.Get("Authorization"), " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") {
+		return ""
+	}
+	return token
+}
+
+func withAuth(authn authenticator, logger *slog.Logger, roles []domain.Role, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+
+		u, err := authn.Authenticate(ctx, bearerToken(r))
+		if err != nil {
+			if errors.Is(err, auth.ErrInvalidToken) {
+				logger.LogAttrs(r.Context(), slog.LevelWarn, "token invalido",
+					slog.Bool("security", true),
+					slog.String("request_id", requestIDFrom(r.Context())),
+					slog.String("route", r.Pattern),
+				)
+			}
+			writeProblem(w, r, err)
+			return
+		}
+		if !slices.Contains(roles, u.Role) {
+			writeProblem(w, r, apperror.Forbidden("sem permissao para esta operacao"))
+			return
+		}
+
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userKey, u)))
+	})
+}
+
+func userFrom(ctx context.Context) (domain.User, bool) {
+	u, ok := ctx.Value(userKey).(domain.User)
+	return u, ok
 }

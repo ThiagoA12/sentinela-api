@@ -5,7 +5,8 @@ info:
   version: 0.1.0
   summary: CRUD de ativos de TI sobre PostgreSQL
 
-security: []
+security:
+  - bearerAuth: []
 
 servers:
   - url: http://127.0.0.1:8080
@@ -25,6 +26,7 @@ paths:
       tags: [operacao]
       operationId: healthz
       summary: processo no ar
+      security: []
       description: nao consulta banco
       responses:
         "200":
@@ -42,6 +44,7 @@ paths:
       tags: [operacao]
       operationId: healthzHead
       summary: igual ao GET, sem corpo
+      security: []
       responses:
         "200":
           $ref: "#/components/responses/SemCorpo"
@@ -51,6 +54,7 @@ paths:
       tags: [operacao]
       operationId: readyz
       summary: pronto para atender
+      security: []
       description: faz um ping no banco com prazo de 2 s.
       responses:
         "200":
@@ -79,6 +83,7 @@ paths:
       tags: [operacao]
       operationId: readyzHead
       summary: igual ao GET, sem corpo
+      security: []
       responses:
         "200":
           $ref: "#/components/responses/SemCorpo"
@@ -124,6 +129,37 @@ paths:
         "500":
           $ref: "#/components/responses/Internal"
 
+  /api/v1/me:
+    get:
+      tags: [autenticacao]
+      operationId: me
+      summary: dados do usuario do token
+      responses:
+        "200":
+          description: o usuario autenticado
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Usuario"
+        "401":
+          $ref: "#/components/responses/TokenRejected"
+        "500":
+          $ref: "#/components/responses/Internal"
+    head:
+      tags: [autenticacao]
+      operationId: meHead
+      summary: igual ao GET, sem corpo
+      responses:
+        "200":
+          $ref: "#/components/responses/SemCorpo"
+        "401":
+          $ref: "#/components/responses/SemCorpo"
+        "500":
+          $ref: "#/components/responses/SemCorpo"
+
   /api/v1/ativos:
     get:
       tags: [ativos]
@@ -149,6 +185,8 @@ paths:
         "400":
           $ref: "#/components/responses/Invalid"
           description: parametro desconhecido, repetido, numero invalido ou query string malformada
+        "401":
+          $ref: "#/components/responses/TokenRejected"
         "422":
           $ref: "#/components/responses/Validation"
           description: valor fora da faixa ou fora da lista permitida
@@ -170,6 +208,8 @@ paths:
         "200":
           $ref: "#/components/responses/SemCorpo"
         "400":
+          $ref: "#/components/responses/SemCorpo"
+        "401":
           $ref: "#/components/responses/SemCorpo"
         "422":
           $ref: "#/components/responses/SemCorpo"
@@ -204,6 +244,11 @@ paths:
         "400":
           $ref: "#/components/responses/Invalid"
           description: JSON malformado, corpo vazio, campo desconhecido ou com tipo errado
+        "401":
+          $ref: "#/components/responses/TokenRejected"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+          description: so admin e analista criam ativos
         "409":
           $ref: "#/components/responses/Conflict"
           description: ja existe um ativo nao excluido com este identifier
@@ -237,6 +282,8 @@ paths:
         "400":
           $ref: "#/components/responses/Invalid"
           description: id nao e um UUID
+        "401":
+          $ref: "#/components/responses/TokenRejected"
         "404":
           $ref: "#/components/responses/NotFound"
           description: ativo inexistente ou excluido
@@ -251,6 +298,8 @@ paths:
         "200":
           $ref: "#/components/responses/SemCorpo"
         "400":
+          $ref: "#/components/responses/SemCorpo"
+        "401":
           $ref: "#/components/responses/SemCorpo"
         "404":
           $ref: "#/components/responses/SemCorpo"
@@ -280,6 +329,11 @@ paths:
         "400":
           $ref: "#/components/responses/Invalid"
           description: id nao e um UUID, JSON malformado ou campo desconhecido
+        "401":
+          $ref: "#/components/responses/TokenRejected"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+          description: so admin e analista alteram ativos
         "404":
           $ref: "#/components/responses/NotFound"
           description: ativo inexistente ou excluido
@@ -309,6 +363,11 @@ paths:
         "400":
           $ref: "#/components/responses/Invalid"
           description: id nao e um UUID
+        "401":
+          $ref: "#/components/responses/TokenRejected"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+          description: so admin exclui ativos
         "404":
           $ref: "#/components/responses/NotFound"
           description: ativo inexistente ou ja excluido
@@ -316,6 +375,13 @@ paths:
           $ref: "#/components/responses/Internal"
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: access_token do POST /api/v1/auth/login, valido por 15 min
+
   headers:
     RequestId:
       description: id da requisicao, gerado pelo servidor
@@ -573,6 +639,29 @@ components:
           token_type: Bearer
           expires_in: 900
 
+    Papel:
+      type: string
+      enum: [admin, analista, leitor]
+
+    Usuario:
+      type: object
+      required: [id, name, email, role]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          $ref: "#/components/schemas/Papel"
+      examples:
+        - id: 01a1cab1-9c80-7a10-8000-000000000001
+          name: Administrador
+          email: admin@sentinela.test
+          role: admin
+
     Problema:
       type: object
       description: RFC 9457
@@ -648,6 +737,45 @@ components:
             status: 401
             detail: credenciais invalidas
             instance: /api/v1/auth/login
+            request_id: 4b0f6a3e-2d1c-4e8f-9a7b-1c2d3e4f5a6b
+
+    TokenRejected:
+      description: a mesma resposta para token ausente, malformado, de outra chave, expirado ou de usuario desativado
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        WWW-Authenticate:
+          description: esquema de autenticacao da API
+          schema:
+            type: string
+            const: Bearer
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problema"
+          example:
+            type: about:blank
+            title: Unauthorized
+            status: 401
+            detail: token ausente, invalido ou expirado
+            instance: /api/v1/ativos
+            request_id: 4b0f6a3e-2d1c-4e8f-9a7b-1c2d3e4f5a6b
+
+    Forbidden:
+      description: o papel do usuario nao pode usar esta rota
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problema"
+          example:
+            type: about:blank
+            title: Forbidden
+            status: 403
+            detail: sem permissao para esta operacao
+            instance: /api/v1/ativos
             request_id: 4b0f6a3e-2d1c-4e8f-9a7b-1c2d3e4f5a6b
 
     NotFound:

@@ -54,6 +54,17 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (domain.U
 	return toDomainUser(row), nil
 }
 
+func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.User, error) {
+	row, err := r.q.GetUserByID(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.User{}, apperror.NotFound("usuario nao encontrado")
+	}
+	if err != nil {
+		return domain.User{}, fmt.Errorf("buscar usuario por id: %w", err)
+	}
+	return toDomainUser(row), nil
+}
+
 func (r *UserRepository) RecordLoginFailure(ctx context.Context, id uuid.UUID, maxFailures int16, lockedUntil time.Time) error {
 	err := r.q.RecordLoginFailure(ctx, db.RecordLoginFailureParams{
 		MaxFailures: maxFailures,

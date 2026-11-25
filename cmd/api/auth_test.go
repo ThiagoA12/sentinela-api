@@ -9,7 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/ThiagoA12/sentinela-api/internal/apperror"
+	"github.com/ThiagoA12/sentinela-api/internal/domain"
 )
 
 type fakeAuthService struct {
@@ -133,5 +136,44 @@ func TestHandleLoginErroDoService(t *testing.T) {
 				t.Errorf("resposta de erro trouxe token: %s", rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestHandleMe(t *testing.T) {
+	u := domain.User{
+		ID:           uuid.MustParse("01a1cab1-9c80-7a10-8000-000000000001"),
+		Name:         "Ana",
+		Email:        "ana@exemplo.com",
+		PasswordHash: "$argon2id$hash-que-nunca-sai",
+		Role:         domain.RoleAnalista,
+		Active:       true,
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	req = req.WithContext(context.WithValue(req.Context(), userKey, u))
+	rec := httptest.NewRecorder()
+
+	handleMe(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, esperado 200; corpo: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/json" {
+		t.Errorf("Content-Type = %q, esperado application/json", got)
+	}
+	want := `{"id":"01a1cab1-9c80-7a10-8000-000000000001","name":"Ana","email":"ana@exemplo.com","role":"analista"}` + "\n"
+	if got := rec.Body.String(); got != want {
+		t.Errorf("corpo = %s, esperado %s", got, want)
+	}
+}
+
+func TestHandleMeSemUsuario(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handleMe(rec, httptest.NewRequest(http.MethodGet, "/api/v1/me", nil))
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, esperado 500", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "context") {
+		t.Errorf("resposta vazou detalhe interno: %s", rec.Body.String())
 	}
 }
